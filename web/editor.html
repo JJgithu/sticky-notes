@@ -197,42 +197,6 @@
             z-index: 10000;
             display: none;
         }
-
-        /* ... existing CSS ... */
-        .ink-popup {
-            position: absolute;
-            top: 40px;
-            right: 10px;
-            background: rgba(255, 255, 255, 0.95);
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            padding: 10px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            z-index: 2000;
-            width: 160px;
-        }
-
-        .ink-row {
-            display: flex;
-            gap: 5px;
-            flex-wrap: wrap;
-        }
-
-        .ink-dot {
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            cursor: pointer;
-            border: 2px solid rgba(0, 0, 0, 0.1);
-        }
-
-        .ink-dot.active {
-            border-color: #0078D4;
-            transform: scale(1.1);
-        }
     </style>
 </head>
 
@@ -241,9 +205,9 @@
     <div id="app-toolbar">
         <div style="color:white; font-weight:bold; font-size:18px;">Stickies</div>
         <div style="display:flex; gap:8px;">
-            <button id="btn-fs" class="btn-main" style="background:#444;">FULLSCREEN</button>
-            <button id="btn-dbg" class="btn-main" style="background:#444;">DEBUG</button>
-            <button id="btn-add" class="btn-main">+ NEW NOTE</button>
+            <button class="btn-main" style="background:#444;" onclick="app.toggleFullscreen()">FULLSCREEN</button>
+            <button class="btn-main" style="background:#444;" onclick="app.toggleDebug()">DEBUG</button>
+            <button class="btn-main" onclick="app.addNote()">+ NEW NOTE</button>
         </div>
     </div>
 
@@ -252,35 +216,14 @@
 
     <script>
         class App {
-            /* ... existing App methods ... */
             constructor() {
                 this.notes = [];
                 this.container = document.getElementById('board');
                 this.colors = ['yellow', 'green', 'pink', 'blue', 'charcoal'];
-                this.inkColors = ['#222222', '#1976D2', '#D32F2F', '#388E3C', '#FFFFFF'];
-
-                // Toolbar Events (Pointer Events for Instant Response)
-                const bindBtn = (id, fn) => {
-                    const btn = document.getElementById(id);
-                    if (!btn) return;
-                    btn.addEventListener('pointerdown', (e) => {
-                        e.preventDefault(); // Stop mouse/touch emulation
-                        e.stopPropagation();
-                        // Visual feedback
-                        btn.style.transform = "scale(0.95)";
-                        setTimeout(() => btn.style.transform = "none", 100);
-                        fn();
-                    });
-                };
-
-                bindBtn('btn-fs', () => this.toggleFullscreen());
-                bindBtn('btn-dbg', () => this.toggleDebug());
-                bindBtn('btn-add', () => this.addNote());
-
                 this.load();
                 setInterval(() => this.save(), 5000);
             }
-            /* ... rest of App ... */
+
             log(msg) {
                 const dbg = document.getElementById('debug-console');
                 if (!dbg) return;
@@ -304,18 +247,12 @@
             }
 
             addNote(data = null) {
-                this.log("Adding Note...");
-                try {
-                    const id = data ? data.id : Date.now().toString();
-                    const note = new StickyNote(id, data, this);
-                    this.notes.push(note);
-                    this.container.appendChild(note.element);
-                    this.save();
-                    return note;
-                } catch (e) {
-                    this.log("Add Err: " + e.message);
-                    console.error(e);
-                }
+                const id = data ? data.id : Date.now().toString();
+                const note = new StickyNote(id, data, this);
+                this.notes.push(note);
+                this.container.appendChild(note.element);
+                this.save();
+                return note;
             }
 
             removeNote(id) {
@@ -354,8 +291,8 @@
                 this.isDrawingMode = data?.isDraw !== undefined ? data.isDraw : true;
 
                 // Ink Properties
-                this.inkColor = data?.inkColor || '#222222';
-                this.inkWidth = data?.inkWidth || 5;
+                this.inkColor = data?.inkColor || '#222';
+                this.inkWidth = data?.inkWidth || 3;
 
                 this.element = this.render();
                 this.initInteraction();
@@ -389,20 +326,10 @@
                         <button class="icon-btn clear-btn" title="Clear Canvas">🧹</button>
                         <div style="flex-grow:1; height:100%" class="drag-handle"></div>
                         
-                        <!-- Pen Trigger -->
-                        <div class="pen-controls" style="display:none; align-items:center; margin-right:10px;">
-                            <button class="icon-btn ink-trigger" style="background:${this.inkColor}; border:1px solid #999; width:20px; height:20px; border-radius:50%;"></button>
-                        </div>
-
-                        <!-- Ink Popup (Hidden by default) -->
-                        <div class="ink-popup" style="display:none;">
-                            <div style="font-size:12px; font-weight:bold; color:#333;">Ink Color</div>
-                            <div class="ink-row">
-                                ${this.app.inkColors.map(c => `<div class="ink-dot ${c === this.inkColor ? 'active' : ''}" style="background:${c}" data-color="${c}"></div>`).join('')}
-                            </div>
-                            <div style="font-size:12px; font-weight:bold; color:#333; margin-top:5px;">Thickness</div>
-                            <input type="range" class="ink-width-slider" min="1" max="15" value="${this.inkWidth}" style="width:100%;">
-                            <button class="btn-main" style="width:100%; margin-top:5px; padding:4px;" class="ink-close-btn">DONE</button>
+                        <!-- Pen Settings -->
+                        <div class="pen-controls" style="display:none; align-items:center; margin-right:10px; gap:5px; background:rgba(255,255,255,0.5); padding:2px 5px; border-radius:4px;">
+                            <input type="color" class="ink-color-picker" value="${this.inkColor}" style="width:20px; height:20px; border:none; padding:0; background:none; cursor:pointer;" title="Ink Color">
+                            <input type="range" class="ink-width-slider" min="1" max="10" value="${this.inkWidth}" style="width:40px;" title="Thickness">
                         </div>
 
                         <div class="color-picker" style="display:flex; gap:4px; margin-right:8px;">
@@ -426,30 +353,13 @@
                 el.querySelector('.clear-btn').onclick = () => { if (confirm("Clear?")) { this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); this.drawing = null; this.app.save(); } };
                 el.querySelectorAll('.color-dot').forEach(d => d.onclick = (e) => this.setColor(e.target.dataset.color));
 
-                // Ink UI Logic
-                const popup = el.querySelector('.ink-popup');
-                const trigger = el.querySelector('.ink-trigger');
-                const startPopup = (e) => { e.stopPropagation(); popup.style.display = popup.style.display === 'none' ? 'flex' : 'none'; };
-                trigger.onclick = trigger.ontouchstart = startPopup;
-
-                el.querySelector('.ink-close-btn').onclick = (e) => { e.stopPropagation(); popup.style.display = 'none'; };
-
-                el.querySelectorAll('.ink-dot').forEach(dot => {
-                    dot.onclick = (e) => {
-                        e.stopPropagation();
-                        // Reset actives
-                        el.querySelectorAll('.ink-dot').forEach(d => d.classList.remove('active'));
-                        dot.classList.add('active');
-                        // Set color
-                        this.inkColor = dot.dataset.color;
-                        trigger.style.background = this.inkColor;
-                        this.app.save();
-                    };
-                });
-
-                const slider = el.querySelector('.ink-width-slider');
-                slider.oninput = (e) => { this.inkWidth = parseInt(e.target.value); };
-                slider.onchange = () => this.app.save();
+                // Ink Listeners
+                const inkCol = el.querySelector('.ink-color-picker');
+                const inkWid = el.querySelector('.ink-width-slider');
+                inkCol.oninput = (e) => this.inkColor = e.target.value;
+                inkCol.onchange = () => this.app.save();
+                inkWid.oninput = (e) => this.inkWidth = parseInt(e.target.value);
+                inkWid.onchange = () => this.app.save();
 
                 el.querySelector('.type-btn').onclick = () => { this.isDrawingMode = false; this.updateModeUI(); };
                 el.querySelector('.draw-btn').onclick = () => { this.isDrawingMode = true; this.updateModeUI(); };
