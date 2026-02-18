@@ -241,9 +241,9 @@
     <div id="app-toolbar">
         <div style="color:white; font-weight:bold; font-size:18px;">Stickies</div>
         <div style="display:flex; gap:8px;">
-            <button id="btn-fs" class="btn-main" style="background:#444;">FULLSCREEN</button>
-            <button id="btn-dbg" class="btn-main" style="background:#444;">DEBUG</button>
-            <button id="btn-add" class="btn-main">+ NEW NOTE</button>
+            <button class="btn-main" style="background:#444;" onclick="app.toggleFullscreen()">FULLSCREEN</button>
+            <button class="btn-main" style="background:#444;" onclick="app.toggleDebug()">DEBUG</button>
+            <button class="btn-main" onclick="app.addNote()">+ NEW NOTE</button>
         </div>
     </div>
 
@@ -254,31 +254,17 @@
         class App {
             /* ... existing App methods ... */
             constructor() {
-                this.notes = [];
-                this.container = document.getElementById('board');
-                this.colors = ['yellow', 'green', 'pink', 'blue', 'charcoal'];
-                this.inkColors = ['#222222', '#1976D2', '#D32F2F', '#388E3C', '#FFFFFF'];
+                try {
+                    this.notes = [];
+                    this.container = document.getElementById('board');
+                    this.colors = ['yellow', 'green', 'pink', 'blue', 'charcoal'];
+                    this.inkColors = ['#222222', '#1976D2', '#D32F2F', '#388E3C', '#FFFFFF'];
 
-                // Toolbar Events (Pointer Events for Instant Response)
-                const bindBtn = (id, fn) => {
-                    const btn = document.getElementById(id);
-                    if (!btn) return;
-                    btn.addEventListener('pointerdown', (e) => {
-                        e.preventDefault(); // Stop mouse/touch emulation
-                        e.stopPropagation();
-                        // Visual feedback
-                        btn.style.transform = "scale(0.95)";
-                        setTimeout(() => btn.style.transform = "none", 100);
-                        fn();
-                    });
-                };
-
-                bindBtn('btn-fs', () => this.toggleFullscreen());
-                bindBtn('btn-dbg', () => this.toggleDebug());
-                bindBtn('btn-add', () => this.addNote());
-
-                this.load();
-                setInterval(() => this.save(), 5000);
+                    this.load();
+                    setInterval(() => this.save(), 5000);
+                } catch (e) {
+                    alert("App Init Error: " + e.message);
+                }
             }
             /* ... rest of App ... */
             log(msg) {

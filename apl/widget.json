@@ -22,7 +22,7 @@
                         "backgroundColor": "#fff7d1",
                         "onPress": {
                             "type": "OpenURL",
-                            "source": "https://jjgithu.github.io/sticky-notes/web/editor.html?v=2.21"
+                            "source": "https://jjgithu.github.io/sticky-notes/web/editor.html?v=2.22"
                         },
                         "items": [
                             {
@@ -63,7 +63,7 @@
                                         "primaryAction": [
                                             {
                                                 "type": "OpenURL",
-                                                "source": "https://jjgithu.github.io/sticky-notes/web/editor.html?v=2.21"
+                                                "source": "https://jjgithu.github.io/sticky-notes/web/editor.html?v=2.22"
                                             }
                                         ]
                                     }
