@@ -241,9 +241,9 @@
     <div id="app-toolbar">
         <div style="color:white; font-weight:bold; font-size:18px;">Stickies</div>
         <div style="display:flex; gap:8px;">
-            <button class="btn-main" style="background:#444;" onclick="app.toggleFullscreen()">FULLSCREEN</button>
-            <button class="btn-main" style="background:#444;" onclick="app.toggleDebug()">DEBUG</button>
-            <button class="btn-main" onclick="app.addNote()">+ NEW NOTE</button>
+            <button id="btn-fs" class="btn-main" style="background:#444;">FULLSCREEN</button>
+            <button id="btn-dbg" class="btn-main" style="background:#444;">DEBUG</button>
+            <button id="btn-add" class="btn-main">+ NEW NOTE</button>
         </div>
     </div>
 
@@ -258,21 +258,41 @@
                 this.container = document.getElementById('board');
                 this.colors = ['yellow', 'green', 'pink', 'blue', 'charcoal'];
                 this.inkColors = ['#222222', '#1976D2', '#D32F2F', '#388E3C', '#FFFFFF'];
+
+                // Toolbar Events (Explicit Touch Support)
+                const bindBtn = (id, fn) => {
+                    const btn = document.getElementById(id);
+                    // Use touchend for fast reaction on Echo Show, click for mouse
+                    btn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); fn(); });
+                    btn.addEventListener('click', (e) => { fn(); });
+                };
+
+                bindBtn('btn-fs', () => this.toggleFullscreen());
+                bindBtn('btn-dbg', () => this.toggleDebug());
+                bindBtn('btn-add', () => this.addNote());
+
                 this.load();
                 setInterval(() => this.save(), 5000);
 
-                // Auto-Fullscreen on first interaction
+                // Auto-Fullscreen on first interaction (Touch End is safer for permission)
                 const enableFS = () => {
                     if (!document.fullscreenElement) {
                         try {
-                            document.documentElement.requestFullscreen().catch(() => { });
-                        } catch (e) { }
+                            document.documentElement.requestFullscreen().then(() => {
+                                this.log("FS Success");
+                            }).catch((e) => {
+                                this.log("FS Blocked: " + e.message);
+                            });
+                        } catch (e) { this.log("FS Error: " + e.message); }
                     }
+                    // Remove listeners once tried
                     window.removeEventListener('click', enableFS);
-                    window.removeEventListener('touchstart', enableFS);
+                    window.removeEventListener('touchend', enableFS);
+                    window.removeEventListener('keydown', enableFS);
                 };
                 window.addEventListener('click', enableFS);
-                window.addEventListener('touchstart', enableFS);
+                window.addEventListener('touchend', enableFS);
+                window.addEventListener('keydown', enableFS);
             }
             /* ... rest of App ... */
             log(msg) {

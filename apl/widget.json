@@ -59,7 +59,7 @@
                                         "primaryAction": [
                                             {
                                                 "type": "OpenURL",
-                                                "source": "https://jjgithu.github.io/sticky-notes/web/launch.html?v=2.17"
+                                                "source": "https://jjgithu.github.io/sticky-notes/web/editor.html?v=2.19"
                                             }
                                         ]
                                     }
