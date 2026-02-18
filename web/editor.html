@@ -290,6 +290,10 @@
                 this.drawing = data?.drawing || null;
                 this.isDrawingMode = data?.isDraw !== undefined ? data.isDraw : true;
 
+                // Ink Properties
+                this.inkColor = data?.inkColor || '#222';
+                this.inkWidth = data?.inkWidth || 3;
+
                 this.element = this.render();
                 this.initInteraction();
 
@@ -301,7 +305,12 @@
             }
 
             serialize() {
-                return { id: this.id, x: this.x, y: this.y, w: this.w, h: this.h, color: this.color, text: this.text, drawing: this.drawing, isDraw: this.isDrawingMode };
+                return {
+                    id: this.id, x: this.x, y: this.y, w: this.w, h: this.h,
+                    color: this.color, text: this.text, drawing: this.drawing,
+                    isDraw: this.isDrawingMode,
+                    inkColor: this.inkColor, inkWidth: this.inkWidth
+                };
             }
 
             render() {
@@ -362,16 +371,19 @@
                 const canv = this.element.querySelector('.note-canvas');
                 const tBtn = this.element.querySelector('.type-btn');
                 const dBtn = this.element.querySelector('.draw-btn');
+                const penControls = this.element.querySelector('.pen-controls');
 
                 if (this.isDrawingMode) {
                     txt.style.display = 'none';
                     canv.style.display = 'block';
+                    penControls.style.display = 'flex'; // Show Ink Controls
                     dBtn.classList.add('active');
                     tBtn.classList.remove('active');
                     this.resizeCanvas();
                 } else {
                     txt.style.display = 'block';
                     canv.style.display = 'none';
+                    penControls.style.display = 'none'; // Hide Ink Controls
                     tBtn.classList.add('active');
                     dBtn.classList.remove('active');
                 }
