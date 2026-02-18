@@ -1,0 +1,47 @@
+{
+  "manifest": {
+    "publishingInformation": {
+      "locales": {
+        "en-US": {
+          "name": "Sticky Notes v4",
+          "summary": "Windows 11 style sticky notes with handwriting and typing.",
+          "description": "A powerful sticky notes widget for your Echo Show. Type or handwrite notes using the touch screen, exactly like Windows 11 Sticky Notes.",
+          "keywords": [
+            "notes",
+            "sticky",
+            "handwriting",
+            "widget"
+          ]
+        }
+      },
+      "isAvailableForAllUsers": false,
+      "categories": [
+        "UTILITIES"
+      ],
+      "distributionCountries": []
+    },
+    "apis": {
+      "custom": {
+        "endpoint": {
+          "uri": "ask-custom-sticky-notes-default"
+        },
+        "interfaces": [
+          {
+            "type": "ALEXA_PRESENTATION_APL"
+          },
+          {
+            "type": "ALEXA_PRESENTATION_HTML"
+          },
+          {
+            "type": "ALEXA_DATA_STORE"
+          },
+          {
+            "type": "ALEXA_DATASTORE_PACKAGEMANAGER"
+          }
+        ]
+      }
+    },
+    "manifestVersion": "1.0",
+    "permissions": []
+  }
+}

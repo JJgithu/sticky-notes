@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- PWA / Fullscreen Mobile Tags -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#202020">
+    <title>Quick Stickies</title>
+    <style>
+        /* --- Windows 11 / Fluent Design System --- */
+        :root {
+            --bg-color: #202020;
+            /* Dark Desktop Background */
+            --shadow-elevation: 0 8px 20px rgba(0, 0, 0, 0.3);
+            --header-height: 32px;
+            --footer-height: 48px;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            background-image: radial-gradient(#333 1px, transparent 1px);
+            background-size: 20px 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            /* Prevent body scroll, notes move freely */
+            touch-action: none;
+            user-select: none;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        /* --- Toolbar (Desktop Style) --- */
+        #app-toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            background: rgba(30, 30, 30, 0.9);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            z-index: 9999;
+            box-shadow: 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .app-title {
+            color: white;
+            font-weight: 600;
+            font-size: 18px;
+        }
+
+        .btn-main {
+            background-color: #0078D4;
+            /* Windows Blue */
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-main:active {
+            background-color: #005a9e;
+        }
+
+        /* --- Sticky Note Container --- */
+        .note {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            border-radius: 4px;
+            box-shadow: var(--shadow-elevation);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            transition: box-shadow 0.2s, transform 0.1s;
+        }
+
+        .note.active {
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+
+        /* --- Colors (Windows 11 Palette) --- */
+        .color-yellow {
+            background-color: #fff7d1;
+        }
+
+        .color-green {
+            background-color: #e4ffc1;
+        }
+
+        .color-pink {
+            background-color: #ffdae9;
+        }
+
+        .color-purple {
+            background-color: #e8dff5;
+        }
+
+        .color-blue {
+            background-color: #e2f1ff;
+        }
+
+        .color-charcoal {
+            background-color: #333333;
+            color: white;
+        }
+
+        .note-header {
+            height: var(--header-height);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 8px;
+            background: rgba(0, 0, 0, 0.05);
+            /* Slight tint */
+            cursor: grab;
+        }
+
+        .note-header:active {
+            cursor: grabbing;
+        }
+
+        .close-btn,
+        .menu-btn {
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            opacity: 0.6;
+            padding: 0 4px;
+            color: inherit;
+        }
+
+        .close-btn:hover,
+        .menu-btn:hover {
+            opacity: 1;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 4px;
+        }
+
+        .note-body {
+            flex-grow: 1;
+            position: relative;
+            background: transparent;
+        }
+
+        /* --- Content Layers --- */
+        .note-textarea {
+            width: 100%;
+            height: 100%;
+            border: none;
+            resize: none;
+            background: transparent;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 16px;
+            padding: 12px;
+            box-sizing: border-box;
+            outline: none;
+            color: inherit;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+
+        .note-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 20;
+            pointer-events: none;
+            /* Default: Let clicks pass to text */
+            touch-action: none;
+            /* Crucial for drawing */
+        }
+
+        .drawing-mode .note-canvas {
+            pointer-events: auto;
+            /* Capture clicks when drawing */
+            cursor: crosshair;
+        }
+
+        .drawing-mode .note-textarea {
+            opacity: 0.8;
+            /* Dim text slightly when drawing */
+        }
+
+        /* --- Footer / Tools --- */
+        .note-footer {
+            height: var(--footer-height);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.03);
+            border-top: 1px solid rgba(0, 0, 0, 0.05);
+            gap: 10px;
+        }
+
+        .tool-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 6px 10px;
+            border-radius: 4px;
+            color: inherit;
+            opacity: 0.7;
+            font-weight: 500;
+        }
+
+        .tool-btn.active {
+            background: rgba(0, 0, 0, 0.2);
+            opacity: 1;
+        }
+
+        .tool-btn:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        /* --- Resize Handle --- */
+        .resize-handle {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 15px;
+            height: 15px;
+            cursor: nwse-resize;
+            background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.3) 50%);
+            z-index: 50;
+        }
+
+        /* --- Context Menu (Colors) --- */
+        .context-menu {
+            position: absolute;
+            top: 35px;
+            right: 10px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            padding: 8px;
+            display: flex;
+            gap: 5px;
+            z-index: 100;
+            display: none;
+        }
+
+        .context-menu.visible {
+            display: flex;
+        }
+
+        .color-dot {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .color-dot:hover {
+            transform: scale(1.1);
+        }
+
+        /* --- Status Bar --- */
+        #status-bar {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            transition: opacity 0.5s;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="app-toolbar">
+        <div class="app-title">Quick Stickies</div>
+        <button class="btn-main" onclick="app.addNote()">+ New Note</button>
+    </div>
+
+    <div id="status-bar">Ready</div>
+
+    <!-- Notes Container -->
+    <div id="board"></div>
+
+    <script>
+        // --- Application State ---
+        class App {
+            constructor() {
+                this.notes = [];
+                this.container = document.getElementById('board');
+                this.colors = [
+                    { name: 'yellow', hex: '#fff7d1' },
+                    { name: 'green', hex: '#e4ffc1' },
+                    { name: 'pink', hex: '#ffdae9' },
+                    { name: 'purple', hex: '#e8dff5' },
+                    { name: 'blue', hex: '#e2f1ff' },
+                    { name: 'charcoal', hex: '#333333' }
+                ];
+
+                // Load from storage
+                this.load();
+
+                // Auto-save loop
+                setInterval(() => this.save(), 2000);
+            }
+
+            log(msg) {
+                const el = document.getElementById('status-bar');
+                if (el) {
+                    el.innerText = msg;
+                    el.style.opacity = 1;
+                }
+                console.log(msg);
+            }
+
+            addNote(data = null) {
+                const id = data ? data.id : Date.now().toString();
+                const note = new StickyNote(id, data, this);
+                this.notes.push(note);
+                this.container.appendChild(note.element);
+                this.log('Note added');
+                this.save();
+                return note;
+            }
+
+            removeNote(id) {
+                this.notes = this.notes.filter(n => n.id !== id);
+                this.save();
+            }
+
+            save() {
+                const data = this.notes.map(n => n.serialize());
+                localStorage.setItem('quick_stickies_v1', JSON.stringify(data));
+                this.log(`Saved ${this.notes.length} notes.`);
+            }
+
+            load() {
+                try {
+                    const json = localStorage.getItem('quick_stickies_v1');
+                    if (json) {
+                        const data = JSON.parse(json);
+                        if (Array.isArray(data) && data.length > 0) {
+                            data.forEach(d => this.addNote(d));
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.error("Load failed", e);
+                }
+                // Default if empty
+                if (this.notes.length === 0) {
+                    this.addNote({
+                        text: "Welcome to Quick Stickies!\n\n- Tap the 'Pen' icon to Draw.\n- Tap 'T' to Type.\n- Drag header to move.\n- Corner to resize.",
+                        x: 50, y: 70, w: 300, h: 300, color: 'yellow'
+                    });
+                }
+            }
+        }
+
+        // --- Sticky Note Component ---
+        class StickyNote {
+            constructor(id, data, app) {
+                this.id = id;
+                this.app = app;
+                this.x = data && data.x ? data.x : Math.random() * (window.innerWidth - 320);
+                this.y = data && data.y ? data.y : Math.random() * (window.innerHeight - 320) + 50;
+                this.width = data && data.w ? data.w : 280;
+                this.height = data && data.h ? data.h : 280;
+                this.color = data && data.color ? data.color : this.app.colors[Math.floor(Math.random() * 5)].name;
+                this.textContent = data && data.text ? data.text : '';
+                this.drawingData = data && data.drawing ? data.drawing : null;
+                this.isDrawingMode = false;
+
+                this.element = this.render();
+                this.initInteraction();
+                this.initCanvas();
+            }
+
+            render() {
+                const el = document.createElement('div');
+                el.className = `note color-${this.color}`;
+                el.style.left = `${this.x}px`;
+                el.style.top = `${this.y}px`;
+                el.style.width = `${this.width}px`;
+                el.style.height = `${this.height}px`;
+                el.id = `note-${this.id}`;
+
+                el.innerHTML = `
+                    <div class="note-header">
+                        <span style="font-size:12px; font-weight:bold; opacity:0.5;">+</span>
+                        <div style="flex-grow:1; height:100%"></div> <!-- Spacer for dragging -->
+                        <div class="context-menu" id="menu-${this.id}">
+                            ${this.app.colors.map(c => `<div class="color-dot" style="background:${c.hex}" data-color="${c.name}"></div>`).join('')}
+                        </div>
+                        <button class="menu-btn" onclick="document.getElementById('menu-${this.id}').classList.toggle('visible')">•••</button>
+                        <button class="close-btn">×</button>
+                    </div>
+                    <div class="note-body">
+                        <textarea class="note-textarea" spellcheck="false">${this.textContent}</textarea>
+                        <canvas class="note-canvas"></canvas>
+                    </div>
+                    <div class="note-footer">
+                        <button class="tool-btn active type-btn">T Type</button>
+                        <button class="tool-btn draw-btn">✎ Draw</button>
+                    </div>
+                    <div class="resize-handle"></div>
+                `;
+
+                // Add Event Listeners
+                el.querySelector('.close-btn').onclick = () => {
+                    if (confirm("Delete this note?")) {
+                        el.remove();
+                        this.app.removeNote(this.id);
+                    }
+                };
+
+                // Color Picker
+                el.querySelectorAll('.color-dot').forEach(dot => {
+                    dot.onclick = (e) => {
+                        this.setColor(e.target.dataset.color);
+                        el.querySelector('.context-menu').classList.remove('visible');
+                    };
+                });
+
+                // Mode Toggles
+                const typeBtn = el.querySelector('.type-btn');
+                const drawBtn = el.querySelector('.draw-btn');
+
+                typeBtn.onclick = () => this.setMode(false, typeBtn, drawBtn);
+                drawBtn.onclick = () => this.setMode(true, typeBtn, drawBtn);
+
+                // Text Input
+                el.querySelector('textarea').oninput = (e) => {
+                    this.textContent = e.target.value;
+                };
+
+                // Bring to front on click
+                el.onmousedown = () => this.focus();
+                el.ontouchstart = () => this.focus();
+
+                return el;
+            }
+
+            focus() {
+                document.querySelectorAll('.note').forEach(n => n.classList.remove('active'));
+                this.element.classList.add('active');
+            }
+
+            setColor(cls) {
+                // Remove old color class
+                this.app.colors.forEach(c => this.element.classList.remove(`color-${c.name}`));
+                this.element.classList.add(`color-${cls}`);
+                this.color = cls;
+                this.app.save();
+            }
+
+            setMode(isDrawing, typeBtn, drawBtn) {
+                this.isDrawingMode = isDrawing;
+                if (isDrawing) {
+                    this.element.classList.add('drawing-mode');
+                    drawBtn.classList.add('active');
+                    typeBtn.classList.remove('active');
+                } else {
+                    this.element.classList.remove('drawing-mode');
+                    drawBtn.classList.remove('active');
+                    typeBtn.classList.add('active');
+                }
+            }
+
+            initCanvas() {
+                this.canvas = this.element.querySelector('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.resizeCanvas(); // Set initial size
+
+                let drawing = false;
+
+                // Touch/Mouse Events
+                const start = (e) => {
+                    if (!this.isDrawingMode) return;
+                    e.preventDefault();
+                    drawing = true;
+                    const pos = this.getPos(e);
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(pos.x, pos.y);
+                    this.ctx.strokeStyle = this.color === 'charcoal' ? '#ffffff' : '#333333';
+                    this.ctx.lineWidth = 3;
+                    this.ctx.lineCap = 'round';
+                };
+
+                const move = (e) => {
+                    if (!drawing) return;
+                    e.preventDefault(); // Stop scrolling
+                    const pos = this.getPos(e);
+                    this.ctx.lineTo(pos.x, pos.y);
+                    this.ctx.stroke();
+                };
+
+                const end = () => {
+                    if (drawing) {
+                        drawing = false;
+                        this.drawingData = this.canvas.toDataURL();
+                        this.app.save();
+                    }
+                };
+
+                this.canvas.addEventListener('mousedown', start);
+                this.canvas.addEventListener('mousemove', move);
+                this.canvas.addEventListener('mouseup', end);
+
+                this.canvas.addEventListener('touchstart', start, { passive: false });
+                this.canvas.addEventListener('touchmove', move, { passive: false });
+                this.canvas.addEventListener('touchend', end);
+
+                // Load existing drawing
+                if (this.drawingData) {
+                    const img = new Image();
+                    img.onload = () => this.ctx.drawImage(img, 0, 0);
+                    img.src = this.drawingData;
+                }
+            }
+
+            resizeCanvas() {
+                // Match parent body size
+                const body = this.element.querySelector('.note-body');
+                this.canvas.width = body.clientWidth;
+                this.canvas.height = body.clientHeight;
+                // If resizing clears canvas, we should redraw from data (omitted for speed, implemented via img load)
+                if (this.drawingData) {
+                    const img = new Image();
+                    img.onload = () => this.ctx.drawImage(img, 0, 0);
+                    img.src = this.drawingData;
+                }
+            }
+
+            getPos(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                return {
+                    x: clientX - rect.left,
+                    y: clientY - rect.top
+                };
+            }
+
+            initInteraction() {
+                // --- Dragging ---
+                const header = this.element.querySelector('.note-header');
+                let isDragging = false, startX, startY, initX, initY;
+
+                const startDrag = (e) => {
+                    if (e.target.tagName === 'BUTTON' || e.target.classList.contains('color-dot')) return;
+                    isDragging = true;
+                    this.focus(); // Bring to front
+                    const evt = e.touches ? e.touches[0] : e;
+                    startX = evt.clientX;
+                    startY = evt.clientY;
+                    initX = this.x;
+                    initY = this.y;
+                    document.body.style.cursor = 'grabbing';
+                };
+
+                const drag = (e) => {
+                    if (!isDragging) return;
+                    e.preventDefault();
+                    const evt = e.touches ? e.touches[0] : e;
+                    const dx = evt.clientX - startX;
+                    const dy = evt.clientY - startY;
+                    this.x = initX + dx;
+                    this.y = initY + dy;
+                    this.element.style.left = `${this.x}px`;
+                    this.element.style.top = `${this.y}px`;
+                };
+
+                const stopDrag = () => {
+                    if (isDragging) {
+                        isDragging = false;
+                        document.body.style.cursor = 'default';
+                        this.app.save();
+                    }
+                };
+
+                header.addEventListener('mousedown', startDrag);
+                window.addEventListener('mousemove', drag);
+                window.addEventListener('mouseup', stopDrag);
+
+                header.addEventListener('touchstart', startDrag);
+                window.addEventListener('touchmove', drag, { passive: false });
+                window.addEventListener('touchend', stopDrag);
+
+
+                // --- Resizing ---
+                const handle = this.element.querySelector('.resize-handle');
+                let isResizing = false;
+
+                const startResize = (e) => {
+                    e.stopPropagation();
+                    isResizing = true;
+                    const evt = e.touches ? e.touches[0] : e;
+                    startX = evt.clientX;
+                    startY = evt.clientY;
+                    initX = this.width;
+                    initY = this.height;
+                };
+
+                const resize = (e) => {
+                    if (!isResizing) return;
+                    e.preventDefault();
+                    const evt = e.touches ? e.touches[0] : e;
+                    const w = initX + (evt.clientX - startX);
+                    const h = initY + (evt.clientY - startY);
+
+                    if (w > 200) { this.width = w; this.element.style.width = w + 'px'; }
+                    if (h > 200) { this.height = h; this.element.style.height = h + 'px'; }
+                    this.resizeCanvas();
+                };
+
+                const stopResize = () => {
+                    if (isResizing) {
+                        isResizing = false;
+                        this.app.save();
+                    }
+                };
+
+                handle.addEventListener('mousedown', startResize);
+                window.addEventListener('mousemove', resize);
+                window.addEventListener('mouseup', stopResize); // reuse window listeners? careful of conflict. 
+                // Creating separate window listeners for safety:
+
+                handle.addEventListener('touchstart', startResize);
+                // We can share the move/up logic if we distinguish state, but separate is cleaner
+            }
+
+            serialize() {
+                return {
+                    id: this.id,
+                    x: this.x,
+                    y: this.y,
+                    w: this.width,
+                    h: this.height,
+                    color: this.color,
+                    text: this.textContent,
+                    drawing: this.drawingData
+                };
+            }
+        }
+
+        // --- Init ---
+        const app = new App();
+
+    </script>
+</body>
+
+</html>

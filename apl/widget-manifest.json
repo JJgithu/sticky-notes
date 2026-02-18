@@ -1,0 +1,25 @@
+{
+    "widgets": [
+        {
+            "id": "StickyNotesWidget",
+            "version": "1.0.0",
+            "name": "Sticky Notes v4",
+            "description": "Quick access to your sticky notes.",
+            "manifest": {
+                "locales": {
+                    "en-US": {
+                        "name": "Sticky Notes New",
+                        "description": "Glanceable sticky notes on your home screen."
+                    }
+                },
+                "background": {
+                    "color": "#121212"
+                },
+                "preview": {
+                    "type": "image",
+                    "url": "https://dummyimage.com/600x400/000/fff&text=Sticky+Notes+Widget"
+                }
+            }
+        }
+    ]
+}

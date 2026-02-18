@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Opening Sticky Notes...</title>
+    <meta http-equiv="refresh"
+        content="0;url=alexa-skills://skills/launch?skillId=amzn1.ask.skill.bc25d97e-ebae-44f3-a0ea-8d2c09c64247">
+    <script>
+        window.onload = function () {
+            const skillId = "amzn1.ask.skill.bc25d97e-ebae-44f3-a0ea-8d2c09c64247";
+            const deepLinks = [
+                `alexa-skills://skills/launch?skillId=${skillId}`,
+                `alexa://skills/launch?skillId=${skillId}`,
+                `https://alexa-skills.amazon.com/apis/custom/skills/${skillId}/launch`
+            ];
+
+            let index = 0;
+
+            function tryNextLink() {
+                if (index < deepLinks.length) {
+                    const link = deepLinks[index++];
+                    console.log("Trying: " + link);
+                    document.getElementById('status').innerText = "Trying Method " + index + "...";
+                    window.location.href = link;
+
+                    // If it doesn't leave the page in 1000ms, try next
+                    setTimeout(tryNextLink, 1000);
+                } else {
+                    document.getElementById('status').innerHTML = "Auto-launch failed.<br><br>Please tap specific links below:<br>" +
+                        deepLinks.map(l => `<a href="${l}" style="color:white; display:block; margin:10px; padding:10px; border:1px solid white;">Launch Method</a>`).join("");
+                }
+            }
+
+            tryNextLink();
+        };
+    </script>
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            flex-direction: column;
+        }
+
+        .loader {
+            border: 5px solid #333;
+            border-top: 5px solid #fff;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="loader"></div>
+    <div id="status">Opening Sticky Notes...</div>
+</body>
+
+</html>
