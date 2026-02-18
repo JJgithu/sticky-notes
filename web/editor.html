@@ -312,6 +312,11 @@
 
     <div id="status-bar">Ready</div>
 
+    <!-- DEBUG CONSOLE -->
+    <div id="debug-console"
+        style="position:fixed; top:50px; left:10px; width:200px; height:300px; background:rgba(0,0,0,0.8); color:#0f0; font-family:monospace; font-size:10px; overflow-y:auto; z-index:99999; pointer-events:none; display:none;">
+    </div>
+
     <!-- Notes Container -->
     <div id="board"></div>
 
@@ -344,6 +349,16 @@
                     el.style.opacity = 1;
                 }
                 console.log(msg);
+
+                // Debug to screen
+                const dbg = document.getElementById('debug-console');
+                if (dbg) {
+                    dbg.style.display = 'block'; // Show if used
+                    const line = document.createElement('div');
+                    line.innerText = `> ${msg}`;
+                    dbg.prepend(line);
+                    if (dbg.children.length > 20) dbg.lastChild.remove();
+                }
             }
 
             addNote(data = null) {
@@ -539,15 +554,23 @@
                 const start = (e) => {
                     if (!this.isDrawingMode) return;
                     e.preventDefault(); // Stop scrolling
-                    isDrawing = true;
+                    // e.stopPropagation(); // Maybe?
 
+                    isDrawing = true;
                     const pos = this.getPos(e);
+
+                    this.app.log(`Start: ${Math.round(pos.x)},${Math.round(pos.y)}`);
+
                     this.ctx.beginPath();
                     this.ctx.moveTo(pos.x, pos.y);
                     this.ctx.lineWidth = 3;
                     this.ctx.lineCap = 'round';
                     this.ctx.lineJoin = 'round';
                     this.ctx.strokeStyle = this.color === 'charcoal' ? '#ffffff' : '#333333';
+
+                    // Draw a dot immediately to prove coordinate is right
+                    this.ctx.fillStyle = this.ctx.strokeStyle;
+                    this.ctx.fillRect(pos.x - 1, pos.y - 1, 2, 2);
                 };
 
                 const move = (e) => {
@@ -555,12 +578,15 @@
                     e.preventDefault();
 
                     const pos = this.getPos(e);
+                    // this.app.log(`M: ${Math.round(pos.x)},${Math.round(pos.y)}`); // Too spammy?
+
                     this.ctx.lineTo(pos.x, pos.y);
                     this.ctx.stroke();
                 };
 
-                const end = () => {
+                const end = (e) => {
                     if (isDrawing) {
+                        this.app.log('End');
                         isDrawing = false;
                         this.drawingData = this.canvas.toDataURL();
                         this.app.save();
@@ -577,6 +603,7 @@
                 this.canvas.addEventListener('touchstart', start, { passive: false });
                 this.canvas.addEventListener('touchmove', move, { passive: false });
                 this.canvas.addEventListener('touchend', end);
+                this.canvas.addEventListener('touchcancel', end); // Handle cancel
 
                 // Load existing
                 if (this.drawingData) {
@@ -588,11 +615,11 @@
 
             resizeCanvas() {
                 const body = this.element.querySelector('.note-body');
-                const temp = this.canvas.toDataURL(); // Save current content
+                const temp = this.canvas.toDataURL();
                 this.canvas.width = body.clientWidth;
                 this.canvas.height = body.clientHeight;
 
-                // Restore content after resize
+                // Restore
                 const img = new Image();
                 img.onload = () => this.ctx.drawImage(img, 0, 0);
                 img.src = temp;
@@ -600,8 +627,19 @@
 
             getPos(e) {
                 const rect = this.canvas.getBoundingClientRect();
-                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                let clientX, clientY;
+
+                if (e.touches && e.touches.length > 0) {
+                    clientX = e.touches[0].clientX;
+                    clientY = e.touches[0].clientY;
+                } else if (e.changedTouches && e.changedTouches.length > 0) {
+                    clientX = e.changedTouches[0].clientX;
+                    clientY = e.changedTouches[0].clientY;
+                } else {
+                    clientX = e.clientX;
+                    clientY = e.clientY;
+                }
+
                 return {
                     x: clientX - rect.left,
                     y: clientY - rect.top
