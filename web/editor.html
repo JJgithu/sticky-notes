@@ -151,7 +151,7 @@
             border-radius: 4px;
         }
 
-        /* --- Canvas & Textarea Layering --- */
+        /* --- Content Layers --- */
         .note-body {
             position: relative;
             flex-grow: 1;
@@ -164,47 +164,54 @@
             width: 100%;
             height: 100%;
             border: none;
-            outline: none;
-            background: transparent;
             resize: none;
+            background: transparent;
             font-family: 'Segoe UI', sans-serif;
             font-size: 18px;
             color: #222;
             padding: 10px;
             box-sizing: border-box;
+            outline: none;
             position: absolute;
             top: 0;
             left: 0;
             z-index: 10;
-            /* Default: Text is accessible */
+            /* Default: Typing is top */
         }
 
         .note-canvas {
             position: absolute;
             top: 0;
             left: 0;
-            z-index: 20;
+            z-index: 5;
             pointer-events: none;
-            /* Default: Let clicks pass to text */
+            /* Default: Passthrough */
             touch-action: none;
             /* Crucial for drawing */
         }
 
-        .drawing-mode .note-canvas {
-            pointer-events: auto;
-            /* Capture clicks when drawing */
-            cursor: crosshair;
+        /* --- Drawing Mode Active --- */
+        .note.drawing-mode .note-textarea {
+            z-index: 5;
+            /* Move text behind */
+            pointer-events: none;
         }
 
-        .drawing-mode .note-textarea {
-            opacity: 0.8;
-            /* Dim text slightly when drawing */
+        .note.drawing-mode .note-textarea::placeholder {
+            color: transparent;
+            /* Hide placeholder */
+        }
+
+        .note.drawing-mode .note-canvas {
+            z-index: 10;
+            /* Move canvas to front */
+            pointer-events: auto;
+            /* Enable drawing */
+            cursor: crosshair;
         }
 
         .note.drawing-mode .note-body {
             box-shadow: inset 0 0 0 2px rgba(0, 120, 212, 0.5);
-            /* Visual Feedback */
-            cursor: crosshair;
         }
 
         /* --- Footer / Tools --- */
