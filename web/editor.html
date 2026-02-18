@@ -413,11 +413,21 @@
                 let drawing = false;
                 let points = [];
 
+                // Helper to get correct coordinates accounting for High DPI
                 const getP = (e) => {
                     const r = this.canvas.getBoundingClientRect();
+                    // Handle both Touch and Mouse
                     const cx = e.touches ? e.touches[0].clientX : e.clientX;
                     const cy = e.touches ? e.touches[0].clientY : e.clientY;
-                    return { x: cx - r.left, y: cy - r.top };
+
+                    // Scale local coordinate to canvas internal resolution
+                    const scaleX = this.canvas.width / r.width;
+                    const scaleY = this.canvas.height / r.height;
+
+                    return {
+                        x: (cx - r.left) * scaleX,
+                        y: (cy - r.top) * scaleY
+                    };
                 };
 
                 const start = (e) => {
@@ -429,13 +439,14 @@
                     points.push(p);
 
                     this.ctx.beginPath();
-                    this.ctx.lineWidth = this.inkWidth || 3;
+                    this.ctx.lineWidth = (this.inkWidth || 3) * (window.devicePixelRatio || 1); // Scale thickness too
                     this.ctx.lineCap = 'round';
                     this.ctx.lineJoin = 'round';
                     this.ctx.strokeStyle = this.inkColor || '#222';
 
                     // Dot
                     this.ctx.fillStyle = this.ctx.strokeStyle;
+                    this.ctx.beginPath();
                     this.ctx.arc(p.x, p.y, this.ctx.lineWidth / 2, 0, Math.PI * 2);
                     this.ctx.fill();
                     this.ctx.beginPath();
@@ -444,6 +455,10 @@
                 const move = (e) => {
                     if (!drawing) return;
                     e.preventDefault();
+
+                    // Attempt to use Coalesced Events for smoother curves (if available)
+                    // Echo Show Silk might support getCoalescedEvents on Pointer Events, 
+                    // but for TouchEvents we just take the main one.
                     const p = getP(e);
                     points.push(p);
 
@@ -478,6 +493,7 @@
                 this.canvas.addEventListener('mousemove', move);
                 document.addEventListener('mouseup', stop);
 
+                // Restore drawing if exists
                 if (this.drawing) {
                     const img = new Image();
                     img.onload = () => this.ctx.drawImage(img, 0, 0);
@@ -488,12 +504,37 @@
             resizeCanvas() {
                 if (!this.canvas) return;
                 const body = this.element.querySelector('.note-body');
-                if (this.canvas.width !== body.clientWidth) {
+                const cw = body.clientWidth;
+                const ch = body.clientHeight;
+
+                // Handle High DPI (Retina / Echo Show)
+                // This makes the internal bitmap larger than the CSS display size
+                const dpr = window.devicePixelRatio || 1;
+
+                if (this.canvas.offsetWidth !== cw || this.canvas.offsetHeight !== ch) {
+                    // Save content
                     const temp = this.canvas.toDataURL();
-                    this.canvas.width = body.clientWidth;
-                    this.canvas.height = body.clientHeight;
+
+                    // Set CSS size (Display size)
+                    this.canvas.style.width = cw + 'px';
+                    this.canvas.style.height = ch + 'px';
+
+                    // Set Internal Attributes (Bitmap size)
+                    this.canvas.width = cw * dpr;
+                    this.canvas.height = ch * dpr;
+
+                    // Scale context to match
+                    // We DON'T scale(dpr, dpr) here because we manually scale coordinates in getP
+                    // allowing us to keep drawing logic explicit.
+                    // Actually, standard practice is: ctx.scale(dpr, dpr).
+                    // BUT, if we do that, we must ensure existing images are drawn correctly.
+                    // Let's stick to manual coordinate scaling in getP to be safe with toDataURL restores.
+
+                    // Restore
                     const img = new Image();
-                    img.onload = () => this.ctx.drawImage(img, 0, 0);
+                    img.onload = () => {
+                        this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height); // Stretch to fit new resolution
+                    };
                     img.src = temp;
                 }
             }
