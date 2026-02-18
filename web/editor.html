@@ -323,8 +323,15 @@
 
                 el.innerHTML = `
                     <div class="note-header">
-                        <button class="icon-btn clear-btn">🧹</button>
+                        <button class="icon-btn clear-btn" title="Clear Canvas">🧹</button>
                         <div style="flex-grow:1; height:100%" class="drag-handle"></div>
+                        
+                        <!-- Pen Settings -->
+                        <div class="pen-controls" style="display:none; align-items:center; margin-right:10px; gap:5px; background:rgba(255,255,255,0.5); padding:2px 5px; border-radius:4px;">
+                            <input type="color" class="ink-color-picker" value="${this.inkColor}" style="width:20px; height:20px; border:none; padding:0; background:none; cursor:pointer;" title="Ink Color">
+                            <input type="range" class="ink-width-slider" min="1" max="10" value="${this.inkWidth}" style="width:40px;" title="Thickness">
+                        </div>
+
                         <div class="color-picker" style="display:flex; gap:4px; margin-right:8px;">
                             ${this.app.colors.map(c => `<div class="color-dot color-${c}" data-color="${c}"></div>`).join('')}
                         </div>
@@ -345,6 +352,14 @@
                 el.querySelector('.close-btn').onclick = () => { if (confirm("Delete?")) { el.remove(); this.app.removeNote(this.id); } };
                 el.querySelector('.clear-btn').onclick = () => { if (confirm("Clear?")) { this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); this.drawing = null; this.app.save(); } };
                 el.querySelectorAll('.color-dot').forEach(d => d.onclick = (e) => this.setColor(e.target.dataset.color));
+
+                // Ink Listeners
+                const inkCol = el.querySelector('.ink-color-picker');
+                const inkWid = el.querySelector('.ink-width-slider');
+                inkCol.oninput = (e) => this.inkColor = e.target.value;
+                inkCol.onchange = () => this.app.save();
+                inkWid.oninput = (e) => this.inkWidth = parseInt(e.target.value);
+                inkWid.onchange = () => this.app.save();
 
                 el.querySelector('.type-btn').onclick = () => { this.isDrawingMode = false; this.updateModeUI(); };
                 el.querySelector('.draw-btn').onclick = () => { this.isDrawingMode = true; this.updateModeUI(); };
@@ -396,6 +411,8 @@
                 this.resizeCanvas();
 
                 let drawing = false;
+                let points = [];
+
                 const getP = (e) => {
                     const r = this.canvas.getBoundingClientRect();
                     const cx = e.touches ? e.touches[0].clientX : e.clientX;
@@ -407,20 +424,42 @@
                     if (!this.isDrawingMode) return;
                     e.preventDefault();
                     drawing = true;
+                    points = [];
                     const p = getP(e);
-                    this.app.log(`D:${Math.round(p.x)},${Math.round(p.y)}`);
+                    points.push(p);
+
                     this.ctx.beginPath();
-                    this.ctx.moveTo(p.x, p.y);
-                    this.ctx.lineWidth = 3;
+                    this.ctx.lineWidth = this.inkWidth || 3;
                     this.ctx.lineCap = 'round';
-                    this.ctx.strokeStyle = this.color === 'charcoal' ? '#fff' : '#222';
+                    this.ctx.lineJoin = 'round';
+                    this.ctx.strokeStyle = this.inkColor || '#222';
+
+                    // Dot
+                    this.ctx.fillStyle = this.ctx.strokeStyle;
+                    this.ctx.arc(p.x, p.y, this.ctx.lineWidth / 2, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    this.ctx.beginPath();
                 };
 
                 const move = (e) => {
                     if (!drawing) return;
                     e.preventDefault();
                     const p = getP(e);
-                    this.ctx.lineTo(p.x, p.y);
+                    points.push(p);
+
+                    if (points.length < 3) return;
+
+                    const i = points.length - 1;
+                    const p0 = points[i - 2];
+                    const p1 = points[i - 1];
+                    const p2 = points[i];
+
+                    const mid1 = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+                    const mid2 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(mid1.x, mid1.y);
+                    this.ctx.quadraticCurveTo(p1.x, p1.y, mid2.x, mid2.y);
                     this.ctx.stroke();
                 };
 
