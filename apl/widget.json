@@ -12,7 +12,7 @@
                 "height": "100%",
                 "onPress": {
                     "type": "OpenURL",
-                    "source": "https://jjgithu.github.io/sticky-notes/web/launch.html"
+                    "source": "https://jjgithu.github.io/sticky-notes/web/launch.html?v=3.0"
                 },
                 "items": [
                     {
@@ -59,7 +59,7 @@
                                         "primaryAction": [
                                             {
                                                 "type": "OpenURL",
-                                                "source": "https://jjgithu.github.io/sticky-notes/web/launch.html?v=2.14"
+                                                "source": "https://jjgithu.github.io/sticky-notes/web/launch.html?v=3.0"
                                             }
                                         ]
                                     }

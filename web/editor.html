@@ -126,6 +126,7 @@
             font-weight: bold;
             opacity: 0.6;
             border-radius: 4px;
+            touch-action: manipulation;
         }
 
         .tool-btn.active {
@@ -140,6 +141,7 @@
             cursor: pointer;
             font-size: 16px;
             padding: 4px;
+            touch-action: manipulation;
         }
 
         .color-dot {
@@ -290,15 +292,12 @@
                 this.text = data?.text || "";
                 this.drawing = data?.drawing || null;
                 this.isDrawingMode = data?.isDraw !== undefined ? data.isDraw : true;
-
-                // Ink Properties
                 this.inkColor = data?.inkColor || '#222';
                 this.inkWidth = data?.inkWidth || 3;
 
                 this.element = this.render();
                 this.initInteraction();
 
-                // Nuclear Delay for board sizing
                 setTimeout(() => {
                     this.initCanvas();
                     this.updateModeUI();
@@ -309,8 +308,7 @@
                 return {
                     id: this.id, x: this.x, y: this.y, w: this.w, h: this.h,
                     color: this.color, text: this.text, drawing: this.drawing,
-                    isDraw: this.isDrawingMode,
-                    inkColor: this.inkColor, inkWidth: this.inkWidth
+                    isDraw: this.isDrawingMode, inkColor: this.inkColor, inkWidth: this.inkWidth
                 };
             }
 
@@ -326,13 +324,10 @@
                     <div class="note-header">
                         <button class="icon-btn clear-btn" title="Clear Canvas">🧹</button>
                         <div style="flex-grow:1; height:100%" class="drag-handle"></div>
-                        
-                        <!-- Pen Settings -->
                         <div class="pen-controls" style="display:none; align-items:center; margin-right:10px; gap:5px; background:rgba(255,255,255,0.5); padding:2px 5px; border-radius:4px;">
-                            <input type="color" class="ink-color-picker" value="${this.inkColor}" style="width:20px; height:20px; border:none; padding:0; background:none; cursor:pointer;" title="Ink Color">
-                            <input type="range" class="ink-width-slider" min="1" max="10" value="${this.inkWidth}" style="width:40px;" title="Thickness">
+                            <input type="color" class="ink-color-picker" value="${this.inkColor}" style="width:20px; height:20px; border:none; padding:0; background:none; cursor:pointer;">
+                            <input type="range" class="ink-width-slider" min="1" max="10" value="${this.inkWidth}" style="width:40px;">
                         </div>
-
                         <div class="color-picker" style="display:flex; gap:4px; margin-right:8px;">
                             ${this.app.colors.map(c => `<div class="color-dot color-${c}" data-color="${c}"></div>`).join('')}
                         </div>
@@ -349,7 +344,7 @@
                     <div class="resize-handle"></div>
                 `;
 
-                // Events
+                // Base Listeners
                 el.querySelector('.close-btn').onclick = () => { if (confirm("Delete?")) { el.remove(); this.app.removeNote(this.id); } };
                 el.querySelector('.clear-btn').onclick = () => { if (confirm("Clear?")) { this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); this.drawing = null; this.app.save(); } };
                 el.querySelectorAll('.color-dot').forEach(d => d.onclick = (e) => this.setColor(e.target.dataset.color));
@@ -390,18 +385,12 @@
                 const penControls = this.element.querySelector('.pen-controls');
 
                 if (this.isDrawingMode) {
-                    txt.style.display = 'none';
-                    canv.style.display = 'block';
-                    penControls.style.display = 'flex'; // Show Ink Controls
-                    dBtn.classList.add('active');
-                    tBtn.classList.remove('active');
+                    txt.style.display = 'none'; canv.style.display = 'block'; penControls.style.display = 'flex';
+                    dBtn.classList.add('active'); tBtn.classList.remove('active');
                     this.resizeCanvas();
                 } else {
-                    txt.style.display = 'block';
-                    canv.style.display = 'none';
-                    penControls.style.display = 'none'; // Hide Ink Controls
-                    tBtn.classList.add('active');
-                    dBtn.classList.remove('active');
+                    txt.style.display = 'block'; canv.style.display = 'none'; penControls.style.display = 'none';
+                    tBtn.classList.add('active'); dBtn.classList.remove('active');
                 }
                 this.app.save();
             }
@@ -411,81 +400,44 @@
                 this.ctx = this.canvas.getContext('2d');
                 this.resizeCanvas();
 
-                let drawing = false;
-                let points = [];
+                let drawing = false, points = [];
 
-                // Helper to get correct coordinates accounting for High DPI
                 const getP = (e) => {
                     const r = this.canvas.getBoundingClientRect();
-                    // Handle both Touch and Mouse
                     const cx = e.touches ? e.touches[0].clientX : e.clientX;
                     const cy = e.touches ? e.touches[0].clientY : e.clientY;
-
-                    // Scale local coordinate to canvas internal resolution
                     const scaleX = this.canvas.width / r.width;
                     const scaleY = this.canvas.height / r.height;
-
-                    return {
-                        x: (cx - r.left) * scaleX,
-                        y: (cy - r.top) * scaleY
-                    };
+                    return { x: (cx - r.left) * scaleX, y: (cy - r.top) * scaleY };
                 };
 
                 const start = (e) => {
                     if (!this.isDrawingMode) return;
-                    e.preventDefault();
-                    drawing = true;
-                    points = [];
-                    const p = getP(e);
-                    points.push(p);
-
+                    e.preventDefault(); drawing = true; points = [];
+                    const p = getP(e); points.push(p);
                     this.ctx.beginPath();
-                    this.ctx.lineWidth = (this.inkWidth || 3) * (window.devicePixelRatio || 1); // Scale thickness too
-                    this.ctx.lineCap = 'round';
-                    this.ctx.lineJoin = 'round';
+                    this.ctx.lineWidth = (this.inkWidth || 3) * (window.devicePixelRatio || 1);
+                    this.ctx.lineCap = 'round'; this.ctx.lineJoin = 'round';
                     this.ctx.strokeStyle = this.inkColor || '#222';
-
-                    // Dot
                     this.ctx.fillStyle = this.ctx.strokeStyle;
-                    this.ctx.beginPath();
                     this.ctx.arc(p.x, p.y, this.ctx.lineWidth / 2, 0, Math.PI * 2);
-                    this.ctx.fill();
-                    this.ctx.beginPath();
+                    this.ctx.fill(); this.ctx.beginPath();
                 };
 
                 const move = (e) => {
-                    if (!drawing) return;
-                    e.preventDefault();
-
-                    // Attempt to use Coalesced Events for smoother curves (if available)
-                    // Echo Show Silk might support getCoalescedEvents on Pointer Events, 
-                    // but for TouchEvents we just take the main one.
-                    const p = getP(e);
-                    points.push(p);
-
+                    if (!drawing) return; e.preventDefault();
+                    const p = getP(e); points.push(p);
                     if (points.length < 3) return;
-
                     const i = points.length - 1;
-                    const p0 = points[i - 2];
-                    const p1 = points[i - 1];
-                    const p2 = points[i];
-
-                    const mid1 = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+                    const p1 = points[i - 1], p2 = points[i];
+                    const mid1 = { x: (points[i - 2].x + p1.x) / 2, y: (points[i - 2].y + p1.y) / 2 };
                     const mid2 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(mid1.x, mid1.y);
+                    this.ctx.beginPath(); this.ctx.moveTo(mid1.x, mid1.y);
                     this.ctx.quadraticCurveTo(p1.x, p1.y, mid2.x, mid2.y);
                     this.ctx.stroke();
                 };
 
-                const stop = () => {
-                    if (drawing) {
-                        drawing = false;
-                        this.drawing = this.canvas.toDataURL();
-                        this.app.save();
-                    }
-                };
+                const stop = () => { if (drawing) { drawing = false; this.drawing = this.canvas.toDataURL(); this.app.save(); } };
 
                 this.canvas.addEventListener('touchstart', start, { passive: false });
                 this.canvas.addEventListener('touchmove', move, { passive: false });
@@ -494,7 +446,6 @@
                 this.canvas.addEventListener('mousemove', move);
                 document.addEventListener('mouseup', stop);
 
-                // Restore drawing if exists
                 if (this.drawing) {
                     const img = new Image();
                     img.onload = () => this.ctx.drawImage(img, 0, 0);
@@ -505,88 +456,33 @@
             resizeCanvas() {
                 if (!this.canvas) return;
                 const body = this.element.querySelector('.note-body');
-                const cw = body.clientWidth;
-                const ch = body.clientHeight;
-
-                // Handle High DPI (Retina / Echo Show)
-                // This makes the internal bitmap larger than the CSS display size
-                const dpr = window.devicePixelRatio || 1;
-
+                const cw = body.clientWidth, ch = body.clientHeight, dpr = window.devicePixelRatio || 1;
                 if (this.canvas.offsetWidth !== cw || this.canvas.offsetHeight !== ch) {
-                    // Save content
                     const temp = this.canvas.toDataURL();
-
-                    // Set CSS size (Display size)
-                    this.canvas.style.width = cw + 'px';
-                    this.canvas.style.height = ch + 'px';
-
-                    // Set Internal Attributes (Bitmap size)
-                    this.canvas.width = cw * dpr;
-                    this.canvas.height = ch * dpr;
-
-                    // Scale context to match
-                    // We DON'T scale(dpr, dpr) here because we manually scale coordinates in getP
-                    // allowing us to keep drawing logic explicit.
-                    // Actually, standard practice is: ctx.scale(dpr, dpr).
-                    // BUT, if we do that, we must ensure existing images are drawn correctly.
-                    // Let's stick to manual coordinate scaling in getP to be safe with toDataURL restores.
-
-                    // Restore
+                    this.canvas.style.width = cw + 'px'; this.canvas.style.height = ch + 'px';
+                    this.canvas.width = cw * dpr; this.canvas.height = ch * dpr;
                     const img = new Image();
-                    img.onload = () => {
-                        this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height); // Stretch to fit new resolution
-                    };
+                    img.onload = () => this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
                     img.src = temp;
                 }
             }
 
             initInteraction() {
-                const head = this.element.querySelector('.drag-handle');
-                const res = this.element.querySelector('.resize-handle');
+                const head = this.element.querySelector('.drag-handle'), res = this.element.querySelector('.resize-handle');
                 let dragging = false, resizing = false, sx, sy, ox, oy, ow, oh;
-
-                const startD = (e) => {
-                    dragging = true; this.focus();
-                    const ev = e.touches ? e.touches[0] : e;
-                    sx = ev.clientX; sy = ev.clientY;
-                    ox = this.x; oy = this.y;
-                };
-
-                const startR = (e) => {
-                    e.stopPropagation(); resizing = true;
-                    const ev = e.touches ? e.touches[0] : e;
-                    sx = ev.clientX; sy = ev.clientY;
-                    ow = this.w; oh = this.h;
-                };
-
+                const startD = (e) => { dragging = true; this.focus(); const ev = e.touches ? e.touches[0] : e; sx = ev.clientX; sy = ev.clientY; ox = this.x; oy = this.y; };
+                const startR = (e) => { e.stopPropagation(); resizing = true; const ev = e.touches ? e.touches[0] : e; sx = ev.clientX; sy = ev.clientY; ow = this.w; oh = this.h; };
                 const move = (e) => {
                     const ev = e.touches ? e.touches[0] : e;
-                    if (dragging) {
-                        this.x = ox + (ev.clientX - sx);
-                        this.y = oy + (ev.clientY - sy);
-                        this.element.style.left = this.x + 'px';
-                        this.element.style.top = this.y + 'px';
-                    }
-                    if (resizing) {
-                        this.w = Math.max(200, ow + (ev.clientX - sx));
-                        this.h = Math.max(200, oh + (ev.clientY - sy));
-                        this.element.style.width = this.w + 'px';
-                        this.element.style.height = this.h + 'px';
-                        this.resizeCanvas();
-                    }
+                    if (dragging) { this.x = ox + (ev.clientX - sx); this.y = oy + (ev.clientY - sy); this.element.style.left = this.x + 'px'; this.element.style.top = this.y + 'px'; }
+                    if (resizing) { this.w = Math.max(200, ow + (ev.clientX - sx)); this.h = Math.max(200, oh + (ev.clientY - sy)); this.element.style.width = this.w + 'px'; this.element.style.height = this.h + 'px'; this.resizeCanvas(); }
                 };
-
                 const stop = () => { dragging = resizing = false; this.app.save(); };
-
-                head.onmousedown = head.ontouchstart = startD;
-                res.onmousedown = res.ontouchstart = startR;
-                window.addEventListener('mousemove', move);
-                window.addEventListener('touchmove', move, { passive: false });
-                window.addEventListener('mouseup', stop);
-                window.addEventListener('touchend', stop);
+                head.onmousedown = head.ontouchstart = startD; res.onmousedown = res.ontouchstart = startR;
+                window.addEventListener('mousemove', move); window.addEventListener('touchmove', move, { passive: false });
+                window.addEventListener('mouseup', stop); window.addEventListener('touchend', stop);
             }
         }
-
         const app = new App();
         window.app = app;
     </script>
