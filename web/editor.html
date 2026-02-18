@@ -259,12 +259,18 @@
                 this.colors = ['yellow', 'green', 'pink', 'blue', 'charcoal'];
                 this.inkColors = ['#222222', '#1976D2', '#D32F2F', '#388E3C', '#FFFFFF'];
 
-                // Toolbar Events (Explicit Touch Support)
+                // Toolbar Events (Pointer Events for Instant Response)
                 const bindBtn = (id, fn) => {
                     const btn = document.getElementById(id);
-                    // Use touchend for fast reaction on Echo Show, click for mouse
-                    btn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); fn(); });
-                    btn.addEventListener('click', (e) => { fn(); });
+                    if (!btn) return;
+                    btn.addEventListener('pointerdown', (e) => {
+                        e.preventDefault(); // Stop mouse/touch emulation
+                        e.stopPropagation();
+                        // Visual feedback
+                        btn.style.transform = "scale(0.95)";
+                        setTimeout(() => btn.style.transform = "none", 100);
+                        fn();
+                    });
                 };
 
                 bindBtn('btn-fs', () => this.toggleFullscreen());
@@ -298,12 +304,18 @@
             }
 
             addNote(data = null) {
-                const id = data ? data.id : Date.now().toString();
-                const note = new StickyNote(id, data, this);
-                this.notes.push(note);
-                this.container.appendChild(note.element);
-                this.save();
-                return note;
+                this.log("Adding Note...");
+                try {
+                    const id = data ? data.id : Date.now().toString();
+                    const note = new StickyNote(id, data, this);
+                    this.notes.push(note);
+                    this.container.appendChild(note.element);
+                    this.save();
+                    return note;
+                } catch (e) {
+                    this.log("Add Err: " + e.message);
+                    console.error(e);
+                }
             }
 
             removeNote(id) {
