@@ -12,7 +12,7 @@
                 "height": "100%",
                 "onPress": {
                     "type": "OpenURL",
-                    "source": "https://jjgithu.github.io/sticky-notes/web/editor.html?v=2.25"
+                    "source": "https://jjgithu.github.io/sticky-notes/web/launch.html"
                 },
                 "items": [
                     {
@@ -20,10 +20,6 @@
                         "width": "100%",
                         "height": "100%",
                         "backgroundColor": "#fff7d1",
-                        "onPress": {
-                            "type": "OpenURL",
-                            "source": "https://jjgithu.github.io/sticky-notes/web/editor.html?v=2.25"
-                        },
                         "items": [
                             {
                                 "type": "Container",
@@ -39,7 +35,7 @@
                                         "text": "Quick Stickies",
                                         "fontSize": "20dp",
                                         "fontWeight": "700",
-                                        "color": "#202020",
+                                        "color": "#666666",
                                         "paddingBottom": "10dp"
                                     },
                                     {
@@ -47,7 +43,7 @@
                                         "text": "Tap to view your notes...",
                                         "fontSize": "32dp",
                                         "fontFamily": "Amazon Ember Display",
-                                        "color": "#666666",
+                                        "color": "#202020",
                                         "maxLines": 4,
                                         "grow": 1
                                     },
@@ -63,7 +59,7 @@
                                         "primaryAction": [
                                             {
                                                 "type": "OpenURL",
-                                                "source": "https://jjgithu.github.io/sticky-notes/web/editor.html?v=2.25"
+                                                "source": "https://jjgithu.github.io/sticky-notes/web/launch.html?v=2.14"
                                             }
                                         ]
                                     }
