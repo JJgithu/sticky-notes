@@ -273,26 +273,6 @@
 
                 this.load();
                 setInterval(() => this.save(), 5000);
-
-                // Auto-Fullscreen on first interaction (Touch End is safer for permission)
-                const enableFS = () => {
-                    if (!document.fullscreenElement) {
-                        try {
-                            document.documentElement.requestFullscreen().then(() => {
-                                this.log("FS Success");
-                            }).catch((e) => {
-                                this.log("FS Blocked: " + e.message);
-                            });
-                        } catch (e) { this.log("FS Error: " + e.message); }
-                    }
-                    // Remove listeners once tried
-                    window.removeEventListener('click', enableFS);
-                    window.removeEventListener('touchend', enableFS);
-                    window.removeEventListener('keydown', enableFS);
-                };
-                window.addEventListener('click', enableFS);
-                window.addEventListener('touchend', enableFS);
-                window.addEventListener('keydown', enableFS);
             }
             /* ... rest of App ... */
             log(msg) {

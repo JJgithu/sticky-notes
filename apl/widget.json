@@ -20,6 +20,10 @@
                         "width": "100%",
                         "height": "100%",
                         "backgroundColor": "#fff7d1",
+                        "onPress": {
+                            "type": "OpenURL",
+                            "source": "https://jjgithu.github.io/sticky-notes/web/editor.html?v=2.20"
+                        },
                         "items": [
                             {
                                 "type": "Container",
@@ -59,7 +63,7 @@
                                         "primaryAction": [
                                             {
                                                 "type": "OpenURL",
-                                                "source": "https://jjgithu.github.io/sticky-notes/web/editor.html?v=2.19"
+                                                "source": "https://jjgithu.github.io/sticky-notes/web/editor.html?v=2.20"
                                             }
                                         ]
                                     }
