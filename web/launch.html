@@ -51,8 +51,15 @@
         🚀 Launch App (Native)
     </button>
 
-    <!-- 2. The Direct Web Link (Fallback) -->
-    <button class="secondary" onclick="window.location.href='editor.html'">
+    <!-- 2. The Direct Web Link (Universal) -->
+    <p style="font-size:12px; opacity:0.6">Try this if Native fails:</p>
+    <button class="secondary"
+        onclick="window.location.href='https://alexa-skills.amazon.com/apis/custom/skills/amzn1.ask.skill.bc25d97e-ebae-44f3-a0ea-8d2c09c64247/launch'">
+        🔗 Launch via Universal Link
+    </button>
+
+    <!-- 3. The Direct Web Link (Fallback) -->
+    <button class="secondary" style="background:#444" onclick="window.location.href='editor.html'">
         🌐 Open in Browser
     </button>
 

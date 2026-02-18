@@ -23,7 +23,7 @@
                         "paddingRight": 20,
                         "paddingTop": 20,
                         "paddingBottom": 20,
-                        "backgroundColor": "${payload.widgetData.color || '#fff7d1'}",
+                        "backgroundColor": "#fff7d1",
                         "items": [
                             {
                                 "type": "Text",

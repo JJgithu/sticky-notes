@@ -233,10 +233,10 @@
             position: absolute;
             bottom: 0;
             right: 0;
-            width: 15px;
-            height: 15px;
+            width: 40px;
+            height: 40px;
             cursor: nwse-resize;
-            background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.3) 50%);
+            background: linear-gradient(135deg, transparent 70%, rgba(0, 0, 0, 0.2) 70%);
             z-index: 50;
         }
 
@@ -362,11 +362,11 @@
                 } catch (e) {
                     console.error("Load failed", e);
                 }
-                // Default if empty
+                // Default if empty - Start with ONE big empty note
                 if (this.notes.length === 0) {
                     this.addNote({
-                        text: "Welcome to Quick Stickies!\n\n- Tap the 'Pen' icon to Draw.\n- Tap 'T' to Type.\n- Drag header to move.\n- Corner to resize.",
-                        x: 50, y: 70, w: 300, h: 300, color: 'yellow'
+                        text: "",
+                        x: 50, y: 50, w: 450, h: 450, color: 'yellow'
                     });
                 }
             }
@@ -377,18 +377,28 @@
             constructor(id, data, app) {
                 this.id = id;
                 this.app = app;
-                this.x = data && data.x ? data.x : Math.random() * (window.innerWidth - 320);
-                this.y = data && data.y ? data.y : Math.random() * (window.innerHeight - 320) + 50;
-                this.width = data && data.w ? data.w : 280;
-                this.height = data && data.h ? data.h : 280;
-                this.color = data && data.color ? data.color : this.app.colors[Math.floor(Math.random() * 5)].name;
+                // Defaults: Bigger (450x450), Empty Text, Drawing Mode by default (if new)
+                this.x = data && data.x ? data.x : Math.random() * (window.innerWidth - 400);
+                this.y = data && data.y ? data.y : Math.random() * (window.innerHeight - 400) + 50;
+                this.width = data && data.w ? data.w : 450;
+                this.height = data && data.h ? data.h : 450;
+                this.color = data && data.color ? data.color : this.app.colors[0].name; // Default Yellow
                 this.textContent = data && data.text ? data.text : '';
                 this.drawingData = data && data.drawing ? data.drawing : null;
-                this.isDrawingMode = false;
+
+                // If it's a fresh note (no data), default to Drawing Mode. 
+                // If loading from save, default to Text mode unless they had a drawing? 
+                // User asked for Drawing Mode standard.
+                this.isDrawingMode = true;
 
                 this.element = this.render();
                 this.initInteraction();
                 this.initCanvas();
+
+                // Set initial mode UI
+                const typeBtn = this.element.querySelector('.type-btn');
+                const drawBtn = this.element.querySelector('.draw-btn');
+                this.setMode(this.isDrawingMode, typeBtn, drawBtn);
             }
 
             render() {
@@ -403,7 +413,7 @@
                 el.innerHTML = `
                     <div class="note-header">
                         <span style="font-size:12px; font-weight:bold; opacity:0.5;">+</span>
-                        <div style="flex-grow:1; height:100%"></div> <!-- Spacer for dragging -->
+                        <div style="flex-grow:1; height:100%"></div>
                         <div class="context-menu" id="menu-${this.id}">
                             ${this.app.colors.map(c => `<div class="color-dot" style="background:${c.hex}" data-color="${c.name}"></div>`).join('')}
                         </div>
@@ -411,12 +421,13 @@
                         <button class="close-btn">×</button>
                     </div>
                     <div class="note-body">
-                        <textarea class="note-textarea" spellcheck="false">${this.textContent}</textarea>
+                        <textarea class="note-textarea" spellcheck="false" placeholder="Type here...">${this.textContent}</textarea>
                         <canvas class="note-canvas"></canvas>
                     </div>
                     <div class="note-footer">
-                        <button class="tool-btn active type-btn">T Type</button>
+                        <button class="tool-btn type-btn">T Type</button>
                         <button class="tool-btn draw-btn">✎ Draw</button>
+                        <button class="tool-btn clear-btn" style="margin-left:auto; font-size:12px">🗑️</button>
                     </div>
                     <div class="resize-handle"></div>
                 `;
@@ -426,6 +437,14 @@
                     if (confirm("Delete this note?")) {
                         el.remove();
                         this.app.removeNote(this.id);
+                    }
+                };
+
+                el.querySelector('.clear-btn').onclick = () => {
+                    if (confirm("Clear drawing?")) {
+                        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                        this.drawingData = null;
+                        this.app.save();
                     }
                 };
 
@@ -462,7 +481,6 @@
             }
 
             setColor(cls) {
-                // Remove old color class
                 this.app.colors.forEach(c => this.element.classList.remove(`color-${c.name}`));
                 this.element.classList.add(`color-${cls}`);
                 this.color = cls;
@@ -485,34 +503,81 @@
             initCanvas() {
                 this.canvas = this.element.querySelector('canvas');
                 this.ctx = this.canvas.getContext('2d');
-                this.resizeCanvas(); // Set initial size
+                this.resizeCanvas();
 
-                let drawing = false;
+                let isDrawing = false;
+                let points = [];
 
-                // Touch/Mouse Events
+                // Helper for quadratic curve (Smoothing)
+                const drawCurve = (ctx, pts) => {
+                    if (pts.length < 3) return;
+                    ctx.beginPath();
+                    ctx.moveTo(pts[0].x, pts[0].y);
+                    for (let i = 1; i < pts.length - 2; i++) {
+                        const xc = (pts[i].x + pts[i + 1].x) / 2;
+                        const yc = (pts[i].y + pts[i + 1].y) / 2;
+                        ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+                    }
+                    // For the last 2 points
+                    const last = pts[pts.length - 1];
+                    const secondLast = pts[pts.length - 2];
+                    ctx.quadraticCurveTo(secondLast.x, secondLast.y, last.x, last.y);
+                    ctx.stroke();
+                };
+
                 const start = (e) => {
                     if (!this.isDrawingMode) return;
-                    e.preventDefault();
-                    drawing = true;
+                    // Aggressively prevent default to stop scrolling/selection
+                    if (e.cancelable) e.preventDefault();
+
+                    isDrawing = true;
+                    points = []; // Reset points
+
                     const pos = this.getPos(e);
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(pos.x, pos.y);
+                    points.push(pos);
+
                     this.ctx.strokeStyle = this.color === 'charcoal' ? '#ffffff' : '#333333';
                     this.ctx.lineWidth = 3;
                     this.ctx.lineCap = 'round';
+                    this.ctx.lineJoin = 'round';
+
+                    // Draw single dot
+                    this.ctx.beginPath();
+                    this.ctx.arc(pos.x, pos.y, 1.5, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    this.ctx.beginPath(); // Begin path for moving
                 };
 
                 const move = (e) => {
-                    if (!drawing) return;
-                    e.preventDefault(); // Stop scrolling
+                    if (!isDrawing) return;
+                    if (e.cancelable) e.preventDefault();
+
                     const pos = this.getPos(e);
-                    this.ctx.lineTo(pos.x, pos.y);
-                    this.ctx.stroke();
+                    points.push(pos);
+
+                    // Basic line drawing for responsiveness, could optimize by only drawing curves on end
+                    // But to see real-time, we use simple lines or basic curves
+                    if (points.length > 2) {
+                        // Clear rect and redraw curve? No, too slow. 
+                        // Just draw segment.
+                        // For true smoothing we need to redraw the path, but that's expensive for a sticky note.
+                        // We will use "Midpoint" strategy on the fly.
+                        const p1 = points[points.length - 2];
+                        const p2 = points[points.length - 1];
+                        const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(p1.x, p1.y);
+                        this.ctx.quadraticCurveTo(p1.x, p1.y, mid.x, mid.y); // Actually this isn't quite right for realtime. 
+                        // Fallback to lineTo for performance, but shorter segments.
+                        this.ctx.lineTo(pos.x, pos.y);
+                        this.ctx.stroke();
+                    }
                 };
 
-                const end = () => {
-                    if (drawing) {
-                        drawing = false;
+                const end = (e) => {
+                    if (isDrawing) {
+                        isDrawing = false;
                         this.drawingData = this.canvas.toDataURL();
                         this.app.save();
                     }
@@ -522,6 +587,7 @@
                 this.canvas.addEventListener('mousemove', move);
                 this.canvas.addEventListener('mouseup', end);
 
+                // IMPORTANT: Passive false to allow preventDefault
                 this.canvas.addEventListener('touchstart', start, { passive: false });
                 this.canvas.addEventListener('touchmove', move, { passive: false });
                 this.canvas.addEventListener('touchend', end);
@@ -535,16 +601,15 @@
             }
 
             resizeCanvas() {
-                // Match parent body size
                 const body = this.element.querySelector('.note-body');
+                const temp = this.canvas.toDataURL(); // Save current content
                 this.canvas.width = body.clientWidth;
                 this.canvas.height = body.clientHeight;
-                // If resizing clears canvas, we should redraw from data (omitted for speed, implemented via img load)
-                if (this.drawingData) {
-                    const img = new Image();
-                    img.onload = () => this.ctx.drawImage(img, 0, 0);
-                    img.src = this.drawingData;
-                }
+
+                // Restore content after resize
+                const img = new Image();
+                img.onload = () => this.ctx.drawImage(img, 0, 0);
+                img.src = temp;
             }
 
             getPos(e) {
@@ -565,7 +630,7 @@
                 const startDrag = (e) => {
                     if (e.target.tagName === 'BUTTON' || e.target.classList.contains('color-dot')) return;
                     isDragging = true;
-                    this.focus(); // Bring to front
+                    this.focus();
                     const evt = e.touches ? e.touches[0] : e;
                     startX = evt.clientX;
                     startY = evt.clientY;
@@ -599,6 +664,7 @@
                 window.addEventListener('mouseup', stopDrag);
 
                 header.addEventListener('touchstart', startDrag);
+                // Passive false to prevent scrolling while dragging
                 window.addEventListener('touchmove', drag, { passive: false });
                 window.addEventListener('touchend', stopDrag);
 
@@ -626,6 +692,8 @@
 
                     if (w > 200) { this.width = w; this.element.style.width = w + 'px'; }
                     if (h > 200) { this.height = h; this.element.style.height = h + 'px'; }
+
+                    // Throttled resizeCanvas call? For now direct call is fine
                     this.resizeCanvas();
                 };
 
@@ -638,11 +706,11 @@
 
                 handle.addEventListener('mousedown', startResize);
                 window.addEventListener('mousemove', resize);
-                window.addEventListener('mouseup', stopResize); // reuse window listeners? careful of conflict. 
-                // Creating separate window listeners for safety:
+                window.addEventListener('mouseup', stopResize);
 
                 handle.addEventListener('touchstart', startResize);
-                // We can share the move/up logic if we distinguish state, but separate is cleaner
+                window.addEventListener('touchmove', resize, { passive: false });
+                window.addEventListener('touchend', stopResize);
             }
 
             serialize() {
