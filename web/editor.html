@@ -117,61 +117,66 @@
         }
 
         .note-header {
-            height: var(--header-height);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 8px;
+            height: 30px;
             background: rgba(0, 0, 0, 0.05);
-            /* Slight tint */
+            display: flex;
+            align-items: center;
+            padding: 0 5px;
             cursor: grab;
+            user-select: none;
         }
 
-        .note-header:active {
-            cursor: grabbing;
+        .drag-zone {
+            flex-grow: 1;
+            height: 100%;
         }
 
         .close-btn,
-        .menu-btn {
+        .menu-btn,
+        .icon-btn {
             background: none;
             border: none;
-            font-size: 18px;
+            font-size: 16px;
             cursor: pointer;
             opacity: 0.6;
-            padding: 0 4px;
+            padding: 0 5px;
             color: inherit;
         }
 
         .close-btn:hover,
-        .menu-btn:hover {
+        .menu-btn:hover,
+        .icon-btn:hover {
             opacity: 1;
             background: rgba(0, 0, 0, 0.1);
             border-radius: 4px;
         }
 
+        /* --- Canvas & Textarea Layering --- */
         .note-body {
-            flex-grow: 1;
             position: relative;
-            background: transparent;
+            flex-grow: 1;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.2);
+            /* Slight tint for writing area */
         }
 
-        /* --- Content Layers --- */
         .note-textarea {
             width: 100%;
             height: 100%;
             border: none;
-            resize: none;
-            background: transparent;
-            font-family: 'Segoe UI', sans-serif;
-            font-size: 16px;
-            padding: 12px;
-            box-sizing: border-box;
             outline: none;
-            color: inherit;
+            background: transparent;
+            resize: none;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 18px;
+            color: #222;
+            padding: 10px;
+            box-sizing: border-box;
             position: absolute;
             top: 0;
             left: 0;
             z-index: 10;
+            /* Default: Text is accessible */
         }
 
         .note-canvas {
@@ -412,13 +417,16 @@
 
                 el.innerHTML = `
                     <div class="note-header">
-                        <span style="font-size:12px; font-weight:bold; opacity:0.5;">+</span>
-                        <div style="flex-grow:1; height:100%"></div>
+                        <!-- Eraser / Clear Button -->
+                        <button class="icon-btn clear-btn" title="Clear Drawing" style="margin-right:5px">🧹</button>
+                        
+                        <div style="flex-grow:1; height:100%" class="drag-zone"></div>
+                        
                         <div class="context-menu" id="menu-${this.id}">
                             ${this.app.colors.map(c => `<div class="color-dot" style="background:${c.hex}" data-color="${c.name}"></div>`).join('')}
                         </div>
-                        <button class="menu-btn" onclick="document.getElementById('menu-${this.id}').classList.toggle('visible')">•••</button>
-                        <button class="close-btn">×</button>
+                        <button class="menu-btn" onclick="document.getElementById('menu-${this.id}').classList.toggle('visible')">🎨</button>
+                        <button class="close-btn" title="Delete Note">×</button>
                     </div>
                     <div class="note-body">
                         <textarea class="note-textarea" spellcheck="false" placeholder="Type here...">${this.textContent}</textarea>
@@ -427,7 +435,6 @@
                     <div class="note-footer">
                         <button class="tool-btn type-btn">T Type</button>
                         <button class="tool-btn draw-btn">✎ Draw</button>
-                        <button class="tool-btn clear-btn" style="margin-left:auto; font-size:12px">🗑️</button>
                     </div>
                     <div class="resize-handle"></div>
                 `;
@@ -441,7 +448,7 @@
                 };
 
                 el.querySelector('.clear-btn').onclick = () => {
-                    if (confirm("Clear drawing?")) {
+                    if (confirm("Clear current drawing?")) {
                         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
                         this.drawingData = null;
                         this.app.save();
