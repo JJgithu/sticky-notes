@@ -2,69 +2,63 @@
 <html>
 
 <head>
-    <title>Opening Sticky Notes...</title>
-    <meta http-equiv="refresh"
-        content="0;url=alexa-skills://skills/launch?skillId=amzn1.ask.skill.bc25d97e-ebae-44f3-a0ea-8d2c09c64247">
-    <script>
-
-        let index = 0;
-
-        function tryNextLink() {
-            if (index < deepLinks.length) {
-                const link = deepLinks[index++];
-                console.log("Trying: " + link);
-                document.getElementById('status').innerText = "Trying Method " + index + "...";
-                window.location.href = link;
-
-                // If it doesn't leave the page in 1000ms, try next
-                setTimeout(tryNextLink, 1000);
-            } else {
-                document.getElementById('status').innerHTML = "Auto-launch failed.<br><br>Please tap specific links below:<br>" +
-                    deepLinks.map(l => `<a href="${l}" style="color:white; display:block; margin:10px; padding:10px; border:1px solid white;">Launch Method</a>`).join("");
-            }
-        }
-
-        tryNextLink();
-        };
-    </script>
+    <title>Launch Quick Stickies</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body {
-            background-color: #121212;
-            color: #ffffff;
-            font-family: sans-serif;
+            background-color: #202020;
+            color: white;
+            font-family: 'Segoe UI', sans-serif;
             display: flex;
-            justify-content: center;
+            flex-direction: column;
             align-items: center;
+            justify-content: center;
             height: 100vh;
             margin: 0;
-            flex-direction: column;
+            text-align: center;
         }
 
-        .loader {
-            border: 5px solid #333;
-            border-top: 5px solid #fff;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-            margin-bottom: 20px;
+        button {
+            background: #0078D4;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            margin: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 80%;
+            max-width: 300px;
         }
 
-        @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
+        button:active {
+            opacity: 0.8;
+        }
 
-            100% {
-                transform: rotate(360deg);
-            }
+        .secondary {
+            background: #333;
         }
     </style>
 </head>
 
 <body>
-    <div class="loader"></div>
-    <div id="status">Opening Sticky Notes...</div>
+    <h2>Quick Stickies</h2>
+    <p>Tap below to launch the app.</p>
+
+    <!-- 1. The Deep Link (Ideal) -->
+    <button
+        onclick="window.location.href='alexa-skills://skills/launch?skillId=amzn1.ask.skill.bc25d97e-ebae-44f3-a0ea-8d2c09c64247'">
+        🚀 Launch App (Native)
+    </button>
+
+    <!-- 2. The Direct Web Link (Fallback) -->
+    <button class="secondary" onclick="window.location.href='editor.html'">
+        🌐 Open in Browser
+    </button>
+
+    <div id="debug" style="margin-top:20px; font-size:12px; color:#888;">
+        v3 - Manual Launch Mode
+    </div>
 </body>
 
 </html>
