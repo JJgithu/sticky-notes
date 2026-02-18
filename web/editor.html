@@ -513,76 +513,31 @@
                 this.resizeCanvas();
 
                 let isDrawing = false;
-                let points = [];
-
-                // Helper for quadratic curve (Smoothing)
-                const drawCurve = (ctx, pts) => {
-                    if (pts.length < 3) return;
-                    ctx.beginPath();
-                    ctx.moveTo(pts[0].x, pts[0].y);
-                    for (let i = 1; i < pts.length - 2; i++) {
-                        const xc = (pts[i].x + pts[i + 1].x) / 2;
-                        const yc = (pts[i].y + pts[i + 1].y) / 2;
-                        ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
-                    }
-                    // For the last 2 points
-                    const last = pts[pts.length - 1];
-                    const secondLast = pts[pts.length - 2];
-                    ctx.quadraticCurveTo(secondLast.x, secondLast.y, last.x, last.y);
-                    ctx.stroke();
-                };
 
                 const start = (e) => {
                     if (!this.isDrawingMode) return;
-                    // Aggressively prevent default to stop scrolling/selection
-                    if (e.cancelable) e.preventDefault();
-
+                    e.preventDefault(); // Stop scrolling
                     isDrawing = true;
-                    points = []; // Reset points
 
                     const pos = this.getPos(e);
-                    points.push(pos);
-
-                    this.ctx.strokeStyle = this.color === 'charcoal' ? '#ffffff' : '#333333';
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(pos.x, pos.y);
                     this.ctx.lineWidth = 3;
                     this.ctx.lineCap = 'round';
                     this.ctx.lineJoin = 'round';
-
-                    // Draw single dot
-                    this.ctx.beginPath();
-                    this.ctx.arc(pos.x, pos.y, 1.5, 0, Math.PI * 2);
-                    this.ctx.fill();
-                    this.ctx.beginPath(); // Begin path for moving
+                    this.ctx.strokeStyle = this.color === 'charcoal' ? '#ffffff' : '#333333';
                 };
 
                 const move = (e) => {
                     if (!isDrawing) return;
-                    if (e.cancelable) e.preventDefault();
+                    e.preventDefault();
 
                     const pos = this.getPos(e);
-                    points.push(pos);
-
-                    // Basic line drawing for responsiveness, could optimize by only drawing curves on end
-                    // But to see real-time, we use simple lines or basic curves
-                    if (points.length > 2) {
-                        // Clear rect and redraw curve? No, too slow. 
-                        // Just draw segment.
-                        // For true smoothing we need to redraw the path, but that's expensive for a sticky note.
-                        // We will use "Midpoint" strategy on the fly.
-                        const p1 = points[points.length - 2];
-                        const p2 = points[points.length - 1];
-                        const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(p1.x, p1.y);
-                        this.ctx.quadraticCurveTo(p1.x, p1.y, mid.x, mid.y); // Actually this isn't quite right for realtime. 
-                        // Fallback to lineTo for performance, but shorter segments.
-                        this.ctx.lineTo(pos.x, pos.y);
-                        this.ctx.stroke();
-                    }
+                    this.ctx.lineTo(pos.x, pos.y);
+                    this.ctx.stroke();
                 };
 
-                const end = (e) => {
+                const end = () => {
                     if (isDrawing) {
                         isDrawing = false;
                         this.drawingData = this.canvas.toDataURL();
@@ -590,16 +545,18 @@
                     }
                 };
 
+                // Mouse
                 this.canvas.addEventListener('mousedown', start);
                 this.canvas.addEventListener('mousemove', move);
                 this.canvas.addEventListener('mouseup', end);
+                this.canvas.addEventListener('mouseout', end);
 
-                // IMPORTANT: Passive false to allow preventDefault
+                // Touch
                 this.canvas.addEventListener('touchstart', start, { passive: false });
                 this.canvas.addEventListener('touchmove', move, { passive: false });
                 this.canvas.addEventListener('touchend', end);
 
-                // Load existing drawing
+                // Load existing
                 if (this.drawingData) {
                     const img = new Image();
                     img.onload = () => this.ctx.drawImage(img, 0, 0);

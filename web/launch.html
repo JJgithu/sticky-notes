@@ -2,70 +2,23 @@
 <html>
 
 <head>
-    <title>Launch Quick Stickies</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quick Stickies</title>
+    <meta http-equiv="refresh" content="0;url=editor.html">
     <style>
         body {
-            background-color: #202020;
+            background: #202020;
             color: white;
-            font-family: 'Segoe UI', sans-serif;
             display: flex;
-            flex-direction: column;
-            align-items: center;
             justify-content: center;
+            align-items: center;
             height: 100vh;
-            margin: 0;
-            text-align: center;
-        }
-
-        button {
-            background: #0078D4;
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            font-size: 18px;
-            margin: 10px;
-            border-radius: 8px;
-            cursor: pointer;
-            width: 80%;
-            max-width: 300px;
-        }
-
-        button:active {
-            opacity: 0.8;
-        }
-
-        .secondary {
-            background: #333;
+            font-family: sans-serif;
         }
     </style>
 </head>
 
 <body>
-    <h2>Quick Stickies</h2>
-    <p>Tap below to launch the app.</p>
-
-    <!-- 1. The Deep Link (Ideal) -->
-    <button
-        onclick="window.location.href='alexa-skills://skills/launch?skillId=amzn1.ask.skill.bc25d97e-ebae-44f3-a0ea-8d2c09c64247'">
-        🚀 Launch App (Native)
-    </button>
-
-    <!-- 2. The Direct Web Link (Universal) -->
-    <p style="font-size:12px; opacity:0.6">Try this if Native fails:</p>
-    <button class="secondary"
-        onclick="window.location.href='https://alexa-skills.amazon.com/apis/custom/skills/amzn1.ask.skill.bc25d97e-ebae-44f3-a0ea-8d2c09c64247/launch'">
-        🔗 Launch via Universal Link
-    </button>
-
-    <!-- 3. The Direct Web Link (Fallback) -->
-    <button class="secondary" style="background:#444" onclick="window.location.href='editor.html'">
-        🌐 Open in Browser
-    </button>
-
-    <div id="debug" style="margin-top:20px; font-size:12px; color:#888;">
-        v3 - Manual Launch Mode
-    </div>
+    <p>Loading Stickies...</p>
 </body>
 
 </html>
