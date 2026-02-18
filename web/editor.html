@@ -307,7 +307,10 @@
 
     <div id="app-toolbar">
         <div class="app-title">Quick Stickies</div>
-        <button class="btn-main" onclick="app.addNote()">+ New Note</button>
+        <div style="display:flex; gap:10px;">
+            <button class="btn-main" style="background:#444" onclick="app.toggleFullscreen()">FULLSCREEN</button>
+            <button class="btn-main" onclick="app.addNote()">+ New Note</button>
+        </div>
     </div>
 
     <div id="status-bar">Ready</div>
@@ -340,6 +343,16 @@
 
                 // Auto-save loop
                 setInterval(() => this.save(), 2000);
+            }
+
+            toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(err => {
+                        this.log(`Fullscreen blocked: ${err.message}`);
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
             }
 
             log(msg) {
@@ -533,14 +546,23 @@
 
             setMode(isDrawing, typeBtn, drawBtn) {
                 this.isDrawingMode = isDrawing;
+                const textarea = this.element.querySelector('.note-textarea');
+                const canvas = this.element.querySelector('.note-canvas');
+
                 if (isDrawing) {
                     this.element.classList.add('drawing-mode');
                     drawBtn.classList.add('active');
                     typeBtn.classList.remove('active');
+                    textarea.style.display = 'none'; // NUCLEAR FIX: Hide the textarea
+                    canvas.style.display = 'block';
+                    // Re-sync canvas size just in case
+                    setTimeout(() => this.resizeCanvas(), 50);
                 } else {
                     this.element.classList.remove('drawing-mode');
                     drawBtn.classList.remove('active');
                     typeBtn.classList.add('active');
+                    textarea.style.display = 'block';
+                    // canvas.style.display = 'none'; // Keep visible to see drawing? No, let's keep it under.
                 }
             }
 
