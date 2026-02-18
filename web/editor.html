@@ -222,6 +222,19 @@
                 this.colors = ['yellow', 'green', 'pink', 'blue', 'charcoal'];
                 this.load();
                 setInterval(() => this.save(), 5000);
+
+                // Auto-Fullscreen on first interaction
+                const enableFS = () => {
+                    if (!document.fullscreenElement) {
+                        try {
+                            document.documentElement.requestFullscreen().catch(() => { });
+                        } catch (e) { }
+                    }
+                    window.removeEventListener('click', enableFS);
+                    window.removeEventListener('touchstart', enableFS);
+                };
+                window.addEventListener('click', enableFS);
+                window.addEventListener('touchstart', enableFS);
             }
 
             log(msg) {
