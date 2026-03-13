@@ -204,6 +204,8 @@
 </head>
 
 <body>
+    <script src="https://cdn.amazon.com/alexa-web-app-api/2.1.0/alexa-web-app-api.min.js"></script>
+
 
     <div id="app-toolbar">
         <div style="color:white; font-weight:bold; font-size:18px;">Stickies</div>
@@ -225,6 +227,14 @@
                 this.colors = ['yellow', 'green', 'pink', 'blue', 'charcoal'];
                 this.load();
                 setInterval(() => this.save(), 5000);
+                
+                try {
+                    alexa.create().then(() => {
+                        this.log("Alexa Web API initialized.");
+                    });
+                } catch(e) {
+                    this.log("Alexa init error: " + e);
+                }
             }
 
             log(msg) {
@@ -261,11 +271,26 @@
             removeNote(id) {
                 this.notes = this.notes.filter(n => n.id !== id);
                 this.save();
+                this.syncNoteCount();
             }
 
             save() {
                 const data = this.notes.map(n => n.serialize());
                 localStorage.setItem('quick_stickies_v2', JSON.stringify(data));
+                this.syncNoteCount();
+            }
+            
+            syncNoteCount() {
+                if (typeof alexa !== 'undefined' && alexa.skill) {
+                    try {
+                        alexa.skill.sendMessage({
+                            action: 'syncData',
+                            noteCount: this.notes.length
+                        });
+                    } catch(e) {
+                        this.log("Sync error: " + e);
+                    }
+                }
             }
 
             load() {
@@ -291,7 +316,7 @@
                 this.color = data?.color || 'yellow';
                 this.text = data?.text || "";
                 this.drawing = data?.drawing || null;
-                this.isDrawingMode = data?.isDraw !== undefined ? data.isDraw : true;
+                this.mode = data?.mode || (data?.isDraw === undefined || data.isDraw ? 'draw' : 'type'); // 'type', 'draw', or 'erase'
                 this.inkColor = data?.inkColor || '#222';
                 this.inkWidth = data?.inkWidth || 3;
 
@@ -308,7 +333,7 @@
                 return {
                     id: this.id, x: this.x, y: this.y, w: this.w, h: this.h,
                     color: this.color, text: this.text, drawing: this.drawing,
-                    isDraw: this.isDrawingMode, inkColor: this.inkColor, inkWidth: this.inkWidth
+                    mode: this.mode, inkColor: this.inkColor, inkWidth: this.inkWidth
                 };
             }
 
@@ -340,6 +365,7 @@
                     <div class="note-footer">
                         <button class="tool-btn type-btn">TYPE</button>
                         <button class="tool-btn draw-btn">DRAW</button>
+                        <button class="tool-btn erase-btn">ERASE</button>
                     </div>
                     <div class="resize-handle"></div>
                 `;
@@ -357,8 +383,9 @@
                 inkWid.oninput = (e) => this.inkWidth = parseInt(e.target.value);
                 inkWid.onchange = () => this.app.save();
 
-                el.querySelector('.type-btn').onclick = () => { this.isDrawingMode = false; this.updateModeUI(); };
-                el.querySelector('.draw-btn').onclick = () => { this.isDrawingMode = true; this.updateModeUI(); };
+                el.querySelector('.type-btn').onclick = () => { this.mode = 'type'; this.updateModeUI(); };
+                el.querySelector('.draw-btn').onclick = () => { this.mode = 'draw'; this.updateModeUI(); };
+                el.querySelector('.erase-btn').onclick = () => { this.mode = 'erase'; this.updateModeUI(); };
                 el.querySelector('textarea').oninput = (e) => { this.text = e.target.value; };
 
                 el.onmousedown = el.ontouchstart = () => this.focus();
@@ -382,15 +409,21 @@
                 const canv = this.element.querySelector('.note-canvas');
                 const tBtn = this.element.querySelector('.type-btn');
                 const dBtn = this.element.querySelector('.draw-btn');
+                const eBtn = this.element.querySelector('.erase-btn');
                 const penControls = this.element.querySelector('.pen-controls');
 
-                if (this.isDrawingMode) {
+                tBtn.classList.remove('active');
+                dBtn.classList.remove('active');
+                eBtn.classList.remove('active');
+
+                if (this.mode === 'draw' || this.mode === 'erase') {
                     txt.style.display = 'none'; canv.style.display = 'block'; penControls.style.display = 'flex';
-                    dBtn.classList.add('active'); tBtn.classList.remove('active');
+                    if (this.mode === 'draw') dBtn.classList.add('active');
+                    if (this.mode === 'erase') eBtn.classList.add('active');
                     this.resizeCanvas();
                 } else {
                     txt.style.display = 'block'; canv.style.display = 'none'; penControls.style.display = 'none';
-                    tBtn.classList.add('active'); dBtn.classList.remove('active');
+                    tBtn.classList.add('active');
                 }
                 this.app.save();
             }
@@ -412,16 +445,26 @@
                 };
 
                 const start = (e) => {
-                    if (!this.isDrawingMode) return;
+                    if (this.mode === 'type') return;
                     e.preventDefault(); drawing = true; points = [];
                     const p = getP(e); points.push(p);
                     this.ctx.beginPath();
-                    this.ctx.lineWidth = (this.inkWidth || 3) * (window.devicePixelRatio || 1);
+                    
+                    if (this.mode === 'erase') {
+                        this.ctx.globalCompositeOperation = 'destination-out';
+                        this.ctx.lineWidth = (this.inkWidth || 3) * 5 * (window.devicePixelRatio || 1); // Make eraser thicker
+                    } else {
+                        this.ctx.globalCompositeOperation = 'source-over';
+                        this.ctx.lineWidth = (this.inkWidth || 3) * (window.devicePixelRatio || 1);
+                        this.ctx.strokeStyle = this.inkColor || '#222';
+                        this.ctx.fillStyle = this.ctx.strokeStyle;
+                    }
+                    
                     this.ctx.lineCap = 'round'; this.ctx.lineJoin = 'round';
-                    this.ctx.strokeStyle = this.inkColor || '#222';
-                    this.ctx.fillStyle = this.ctx.strokeStyle;
-                    this.ctx.arc(p.x, p.y, this.ctx.lineWidth / 2, 0, Math.PI * 2);
-                    this.ctx.fill(); this.ctx.beginPath();
+                    if (this.mode !== 'erase') {
+                        this.ctx.arc(p.x, p.y, this.ctx.lineWidth / 2, 0, Math.PI * 2);
+                        this.ctx.fill(); this.ctx.beginPath();
+                    }
                 };
 
                 const move = (e) => {
