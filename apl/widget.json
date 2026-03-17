@@ -11,59 +11,28 @@
                 "width": "100%",
                 "height": "100%",
                 "onPress": {
-                    "type": "OpenURL",
-                    "source": "https://jjgithu.github.io/sticky-notes/web/launch.html?v=3.0"
+                    "type": "SendEvent",
+                    "arguments": ["LaunchBlankGame"],
+                    "flags": {
+                        "interactionMode": "STANDARD"
+                    }
                 },
                 "items": [
                     {
                         "type": "Frame",
                         "width": "100%",
                         "height": "100%",
-                        "backgroundColor": "#fff7d1",
+                        "backgroundColor": "#000000",
                         "items": [
                             {
-                                "type": "Container",
+                                "type": "Text",
+                                "text": "TAP TO LAUNCH",
+                                "fontSize": "40dp",
+                                "color": "#00FF00",
+                                "textAlign": "center",
+                                "textAlignVertical": "center",
                                 "width": "100%",
-                                "height": "100%",
-                                "paddingLeft": 20,
-                                "paddingRight": 20,
-                                "paddingTop": 20,
-                                "paddingBottom": 20,
-                                "items": [
-                                    {
-                                        "type": "Text",
-                                        "text": "Quick Stickies",
-                                        "fontSize": "20dp",
-                                        "fontWeight": "700",
-                                        "color": "#666666",
-                                        "paddingBottom": "10dp"
-                                    },
-                                    {
-                                        "type": "Text",
-                                        "text": "Tap to view your notes...",
-                                        "fontSize": "32dp",
-                                        "fontFamily": "Amazon Ember Display",
-                                        "color": "#202020",
-                                        "maxLines": 4,
-                                        "grow": 1
-                                    },
-                                    {
-                                        "type": "AlexaButton",
-                                        "buttonStyle": "contained",
-                                        "buttonText": "+",
-                                        "position": "absolute",
-                                        "bottom": 10,
-                                        "right": 10,
-                                        "width": "60dp",
-                                        "height": "60dp",
-                                        "primaryAction": [
-                                            {
-                                                "type": "OpenURL",
-                                                "source": "https://jjgithu.github.io/sticky-notes/web/launch.html?v=3.0"
-                                            }
-                                        ]
-                                    }
-                                ]
+                                "height": "100%"
                             }
                         ]
                     }
