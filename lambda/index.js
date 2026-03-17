@@ -29,29 +29,17 @@ const WidgetUserEventHandler = {
 };
 
 function startWebApp(handlerInput) {
-    const htmlInterface = Alexa.getSupportedInterfaces(handlerInput.requestEnvelope)['Alexa.Presentation.HTML'];
-
-    if (htmlInterface) {
-        console.log('Sending Alexa.Presentation.HTML.Start directive...');
-        return handlerInput.responseBuilder
-            .speak('Opening Sticky Notes')
-            .addDirective({
-                type: 'Alexa.Presentation.HTML.Start',
-                data: {
-                    initialData: {
-                        mode: 'create'
-                    }
-                },
-                request: {
-                    uri: 'https://jjgithu.github.io/sticky-notes/web/blank.html',
-                    method: 'GET'
-                }
-            })
-            .getResponse();
-    }
-
+    console.log('Sending Alexa.Presentation.HTML.Start directive...');
     return handlerInput.responseBuilder
-        .speak('This device does not support the interactive sticky notes.')
+        .speak('Launching blank test.')
+        .addDirective({
+            type: 'Alexa.Presentation.HTML.Start',
+            request: {
+                uri: 'https://jjgithu.github.io/sticky-notes/web/blank.html',
+                method: 'GET'
+            }
+        })
+        .withShouldEndSession(undefined)
         .getResponse();
 }
 
