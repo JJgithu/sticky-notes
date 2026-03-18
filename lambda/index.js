@@ -23,8 +23,54 @@ const WidgetUserEventHandler = {
         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'Alexa.Presentation.APL.UserEvent';
     },
     handle(handlerInput) {
-        console.log('Widget Tapped! Launching Web App directly.');
-        return startWebApp(handlerInput);
+        const args = handlerInput.requestEnvelope.request.arguments || [];
+        console.log('Received Widget UserEvent with args:', args);
+        const eventName = args[0];
+
+        // STEP 2: The "Loading Screen" has mounted and sent us the INTERNAL signal.
+        if (eventName === 'INTERNAL_LAUNCH_CMD') {
+            console.log('Step 2: Transitioning from Loading Screen to Web App');
+            return startWebApp(handlerInput);
+        }
+
+        // STEP 1: Handle Initial Widget Taps.
+        console.log('Step 1: Rendering Loading Screen to bridge Modality...');
+        return handlerInput.responseBuilder
+            .addDirective({
+                type: 'Alexa.Presentation.APL.RenderDocument',
+                token: 'LOADING_SCREEN',
+                document: {
+                    type: 'APL',
+                    version: '2023.2',
+                    onMount: [
+                        {
+                            type: 'SendEvent',
+                            arguments: ['INTERNAL_LAUNCH_CMD']
+                        }
+                    ],
+                    mainTemplate: {
+                        items: [
+                            {
+                                type: 'Container',
+                                width: '100%',
+                                height: '100%',
+                                backgroundColor: '#202020',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                items: [
+                                    {
+                                        type: 'Text',
+                                        text: 'Loading Stickies...',
+                                        fontSize: '40dp',
+                                        color: '#00ff00'
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            })
+            .getResponse();
     }
 };
 
