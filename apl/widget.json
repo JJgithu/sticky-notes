@@ -1,6 +1,13 @@
 {
     "type": "APL",
     "version": "2023.2",
+    "theme": "dark",
+    "import": [
+        {
+            "name": "alexa-layouts",
+            "version": "1.7.0"
+        }
+    ],
     "mainTemplate": {
         "parameters": [
             "payload"
@@ -10,33 +17,59 @@
                 "type": "TouchWrapper",
                 "width": "100%",
                 "height": "100%",
-                "onPress": {
-                    "type": "SendEvent",
-                    "arguments": ["LaunchBlankGame"],
-                    "flags": {
-                        "interactionMode": "STANDARD"
-                    }
-                },
-                "items": [
+                "onPress": [
                     {
-                        "type": "Frame",
-                        "width": "100%",
-                        "height": "100%",
-                        "backgroundColor": "#000000",
-                        "items": [
-                            {
-                                "type": "Text",
-                                "text": "TAP TO LAUNCH",
-                                "fontSize": "40dp",
-                                "color": "#00FF00",
-                                "textAlign": "center",
-                                "textAlignVertical": "center",
-                                "width": "100%",
-                                "height": "100%"
-                            }
-                        ]
+                        "type": "SendEvent",
+                        "arguments": [
+                            "OpenWidget"
+                        ],
+                        "flags": {
+                            "interactionMode": "STANDARD"
+                        }
                     }
-                ]
+                ],
+                "item": {
+                    "type": "Container",
+                    "width": "100%",
+                    "height": "100%",
+                    "backgroundColor": "#202020",
+                    "padding": 20,
+                    "alignItems": "center",
+                    "justifyContent": "center",
+                    "items": [
+                        {
+                            "type": "Text",
+                            "text": "Sticky Notes",
+                            "fontSize": "32dp",
+                            "color": "#FFF2AB",
+                            "fontWeight": "bold",
+                            "maxLines": 1
+                        },
+                        {
+                            "type": "Text",
+                            "text": "${payload.quick_stickies.open_notes_count.displayString}",
+                            "fontSize": "20dp",
+                            "color": "#AAAAAA",
+                            "maxLines": 1,
+                            "paddingBottom": 20
+                        },
+                        {
+                            "type": "AlexaButton",
+                            "buttonText": "+ Create Note",
+                            "primaryAction": [
+                                {
+                                    "type": "SendEvent",
+                                    "arguments": [
+                                        "OpenWidget"
+                                    ],
+                                    "flags": {
+                                        "interactionMode": "STANDARD"
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
             }
         ]
     }

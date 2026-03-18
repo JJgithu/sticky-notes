@@ -23,54 +23,8 @@ const WidgetUserEventHandler = {
         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'Alexa.Presentation.APL.UserEvent';
     },
     handle(handlerInput) {
-        const args = handlerInput.requestEnvelope.request.arguments || [];
-        console.log('Received Widget UserEvent with args:', args);
-        const eventName = args[0];
-
-        // STEP 2: The "Loading Screen" has mounted and sent us the INTERNAL signal.
-        if (eventName === 'INTERNAL_LAUNCH_CMD') {
-            console.log('Step 2: Transitioning from Loading Screen to Web App');
-            return startWebApp(handlerInput);
-        }
-
-        // STEP 1: Handle Initial Widget Taps.
-        console.log('Step 1: Rendering Loading Screen to bridge Modality...');
-        return handlerInput.responseBuilder
-            .addDirective({
-                type: 'Alexa.Presentation.APL.RenderDocument',
-                token: 'LOADING_SCREEN',
-                document: {
-                    type: 'APL',
-                    version: '2023.2',
-                    onMount: [
-                        {
-                            type: 'SendEvent',
-                            arguments: ['INTERNAL_LAUNCH_CMD']
-                        }
-                    ],
-                    mainTemplate: {
-                        items: [
-                            {
-                                type: 'Container',
-                                width: '100%',
-                                height: '100%',
-                                backgroundColor: '#202020',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                items: [
-                                    {
-                                        type: 'Text',
-                                        text: 'Loading Stickies...',
-                                        fontSize: '40dp',
-                                        color: '#00ff00'
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                }
-            })
-            .getResponse();
+        console.log('Widget Tapped! Initiating 1-Step Direct Web App Launch.');
+        return startWebApp(handlerInput);
     }
 };
 
@@ -81,7 +35,7 @@ function startWebApp(handlerInput) {
         .addDirective({
             type: 'Alexa.Presentation.HTML.Start',
             request: {
-                uri: 'https://jjgithu.github.io/sticky-notes/web/blank.html',
+                uri: `https://jjgithu.github.io/sticky-notes/web/editor.html?t=${Date.now()}`,
                 method: 'GET'
             }
         })
@@ -96,6 +50,57 @@ const CreateNoteIntentHandler = {
     },
     handle(handlerInput) {
         return startWebApp(handlerInput);
+    }
+};
+
+const HtmlMessageHandler = {
+    canHandle(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'Alexa.Presentation.HTML.Message';
+    },
+    handle(handlerInput) {
+        const message = handlerInput.requestEnvelope.request.message;
+        console.log(`Received HTML message: ${JSON.stringify(message)}`);
+
+        if (message && message.action === 'syncData' && message.noteCount !== undefined) {
+            console.log(`Updating DataStore with note count: ${message.noteCount}`);
+            
+            const updateToken = `update-token-${Date.now()}`;
+            
+            let displayString = `${message.noteCount} open notes`;
+            if (message.noteCount === 1) displayString = `1 open note`;
+            if (message.noteCount === 0) displayString = `Tap to create a note...`;
+
+            return handlerInput.responseBuilder
+                .addDirective({
+                    type: 'Alexa.DataStore.PackageManager.UpdateRequest',
+                    token: updateToken,
+                    payload: {
+                        packages: [
+                            {
+                                packageId: 'widget_data',
+                                type: 'COMMAND',
+                                commands: [
+                                    {
+                                        type: 'PUT_NAMESPACE',
+                                        namespace: 'quick_stickies'
+                                    },
+                                    {
+                                        type: 'PUT_OBJECT',
+                                        namespace: 'quick_stickies',
+                                        key: 'open_notes_count',
+                                        content: {
+                                            displayString: displayString
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                })
+                .getResponse();
+        }
+
+        return handlerInput.responseBuilder.getResponse();
     }
 };
 
@@ -128,6 +133,7 @@ exports.handler = Alexa.SkillBuilders.custom()
         LaunchRequestHandler,
         WidgetUserEventHandler,
         CreateNoteIntentHandler,
+        HtmlMessageHandler,
         SessionEndedRequestHandler
     )
     .addRequestInterceptors(
