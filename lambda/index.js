@@ -26,25 +26,25 @@ const WidgetUserEventHandler = {
         const args = handlerInput.requestEnvelope.request.arguments || [];
         const eventName = args[0];
 
-        // STEP 2: The automated APL screen fires this instantly to jump to HTML
-        if (eventName === 'INTERNAL_LAUNCH_CMD') {
-            console.log('Automated Bridge triggered! Launching Web API.');
+        // STEP 2: The manual button tap fires this to jump to HTML
+        if (eventName === 'START_WEB_APP') {
+            console.log('Lobby Button Tapped! Launching Web API.');
             return startWebApp(handlerInput);
         }
 
-        // STEP 1: Widget tap triggers the APL gap-bridger
-        console.log('Widget Tapped! Rendering Automated APL Bridge.');
+        // STEP 1: Widget tap triggers the Interactive Lobby Menu
+        console.log('Widget Tapped! Rendering Interactive Lobby Screen.');
         return handlerInput.responseBuilder
             .addDirective({
                 type: 'Alexa.Presentation.APL.RenderDocument',
-                token: 'LOADING_SCREEN',
+                token: 'LOBBY_SCREEN',
                 document: {
                     type: 'APL',
                     version: '2023.2',
-                    onMount: [
+                    import: [
                         {
-                            type: 'SendEvent',
-                            arguments: ['INTERNAL_LAUNCH_CMD']
+                            name: 'alexa-layouts',
+                            version: '1.7.0'
                         }
                     ],
                     mainTemplate: {
@@ -59,9 +59,21 @@ const WidgetUserEventHandler = {
                                 items: [
                                     {
                                         type: 'Text',
-                                        text: 'Loading...',
+                                        text: 'Welcome to Sticky Notes',
                                         fontSize: '40dp',
-                                        color: '#AAAAAA'
+                                        color: '#FFF2AB',
+                                        paddingBottom: '30dp'
+                                    },
+                                    {
+                                        type: 'AlexaButton',
+                                        buttonText: 'Enter Editor',
+                                        buttonStyle: 'contained',
+                                        primaryAction: [
+                                            {
+                                                type: 'SendEvent',
+                                                arguments: ['START_WEB_APP']
+                                            }
+                                        ]
                                     }
                                 ]
                             }
@@ -69,8 +81,9 @@ const WidgetUserEventHandler = {
                     }
                 }
             })
-            .speak('Opening.')
-            .withShouldEndSession(undefined)
+            .speak('Welcome to Sticky Notes. Tap Enter Editor to start drawing.')
+            .reprompt('Tap Enter Editor to start drawing.')
+            .withShouldEndSession(false)
             .getResponse();
     }
 };
