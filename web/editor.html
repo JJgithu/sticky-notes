@@ -252,6 +252,15 @@
     </div>
 
     <script>
+        // Catch silent JS crashes on Echo Show
+        window.onerror = function(msg, url, line, col, error) {
+            const errDiv = document.createElement('div');
+            errDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;background:red;color:white;z-index:99999;padding:10px;font-size:16px;font-family:sans-serif;';
+            errDiv.textContent = `JS Error: ${msg} [Line: ${line}]`;
+            document.body.appendChild(errDiv);
+            return false;
+        };
+
         // State
         let currentMode = 'type'; // 'type', 'draw', 'erase'
         let zIndexCounter = 100;
@@ -354,29 +363,13 @@
             const ctx = canvas.getContext('2d');
             const contentDiv = note.querySelector('.note-content');
             
-            // Resize Observer to keep canvas resolution crisp
-            const resizeObserver = new ResizeObserver(entries => {
-                for (let entry of entries) {
-                    // Save existing image
-                    const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = canvas.width;
-                    tempCanvas.height = canvas.height;
-                    const tempCtx = tempCanvas.getContext('2d');
-                    tempCtx.drawImage(canvas, 0, 0);
-
-                    // Resize
-                    canvas.width = entry.contentRect.width;
-                    canvas.height = entry.contentRect.height;
-                    
-                    // Setup context defaults
-                    ctx.lineCap = 'round';
-                    ctx.lineJoin = 'round';
-                    
-                    // Restore image
-                    ctx.drawImage(tempCanvas, 0, 0);
-                }
-            });
-            resizeObserver.observe(contentDiv);
+            // Set initial canvas resolution
+            const rect = contentDiv.getBoundingClientRect();
+            // Default note width/height if DOM hasn't rendered it yet
+            canvas.width = rect.width || 300; 
+            canvas.height = rect.height || 250;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
 
             // Drawing State
             let isDrawing = false;
