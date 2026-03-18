@@ -91,7 +91,6 @@ const WidgetUserEventHandler = {
 function startWebApp(handlerInput) {
     console.log('Sending Alexa.Presentation.HTML.Start directive...');
     return handlerInput.responseBuilder
-        .speak('Launching blank test.')
         .addDirective({
             type: 'Alexa.Presentation.HTML.Start',
             request: {
@@ -99,7 +98,6 @@ function startWebApp(handlerInput) {
                 method: 'GET'
             }
         })
-        .withShouldEndSession(undefined)
         .getResponse();
 }
 
