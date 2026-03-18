@@ -69,6 +69,8 @@ const WidgetUserEventHandler = {
                     }
                 }
             })
+            .speak('Opening.')
+            .withShouldEndSession(undefined)
             .getResponse();
     }
 };
@@ -80,7 +82,7 @@ function startWebApp(handlerInput) {
         .addDirective({
             type: 'Alexa.Presentation.HTML.Start',
             request: {
-                uri: `https://jjgithu.github.io/sticky-notes/web/editor.html?t=${Date.now()}`,
+                uri: `https://jjgithu.github.io/sticky-notes/web/editor.html`,
                 method: 'GET'
             }
         })
