@@ -40,33 +40,16 @@
                         {
                             "type": "Text",
                             "text": "Sticky Notes",
-                            "fontSize": "32dp",
+                            "fontSize": "28dp",
                             "color": "#FFF2AB",
                             "fontWeight": "bold",
-                            "maxLines": 1
+                            "paddingBottom": "8dp"
                         },
                         {
                             "type": "Text",
-                            "text": "${payload.quick_stickies.open_notes_count.displayString}",
-                            "fontSize": "20dp",
-                            "color": "#AAAAAA",
-                            "maxLines": 1,
-                            "paddingBottom": 20
-                        },
-                        {
-                            "type": "AlexaButton",
-                            "buttonText": "+ Create Note",
-                            "primaryAction": [
-                                {
-                                    "type": "SendEvent",
-                                    "arguments": [
-                                        "OpenWidget"
-                                    ],
-                                    "flags": {
-                                        "interactionMode": "STANDARD"
-                                    }
-                                }
-                            ]
+                            "text": "Tap to open",
+                            "fontSize": "18dp",
+                            "color": "#888888"
                         }
                     ]
                 }

@@ -1,0 +1,302 @@
+{
+    "type": "APL",
+    "version": "2023.2",
+    "theme": "dark",
+    "import": [
+        {
+            "name": "alexa-layouts",
+            "version": "1.7.0"
+        }
+    ],
+    "onMount": [
+        {
+            "type": "Sequential",
+            "repeatCount": 500,
+            "commands": [
+                {
+                    "type": "Idle",
+                    "delay": 15000
+                },
+                {
+                    "type": "SendEvent",
+                    "arguments": ["keepAlive"]
+                }
+            ]
+        }
+    ],
+    "layouts": {
+        "ColorDot": {
+            "parameters": [
+                { "name": "dotColor", "type": "string" },
+                { "name": "targetNoteId", "type": "string" }
+            ],
+            "items": [
+                {
+                    "type": "TouchWrapper",
+                    "onPress": [
+                        {
+                            "type": "SetValue",
+                            "componentId": "${targetNoteId}",
+                            "property": "noteColor",
+                            "value": "${dotColor}"
+                        }
+                    ],
+                    "item": {
+                        "type": "Frame",
+                        "width": "28dp",
+                        "height": "28dp",
+                        "borderRadius": "14dp",
+                        "backgroundColor": "${dotColor}",
+                        "borderWidth": "2dp",
+                        "borderColor": "rgba(0,0,0,0.2)",
+                        "marginRight": "6dp"
+                    }
+                }
+            ]
+        },
+        "StickyNote": {
+            "parameters": [
+                { "name": "noteId", "type": "string" }
+            ],
+            "items": [
+                {
+                    "type": "Frame",
+                    "id": "${noteId}",
+                    "display": "none",
+                    "width": "300dp",
+                    "height": "240dp",
+                    "borderRadius": "12dp",
+                    "borderWidth": "1dp",
+                    "borderColor": "rgba(0,0,0,0.08)",
+                    "marginRight": "16dp",
+                    "marginBottom": "16dp",
+                    "bind": [
+                        { "name": "noteColor", "value": "#FFF2AB" },
+                        { "name": "myNoteId", "value": "${noteId}" }
+                    ],
+                    "backgroundColor": "${noteColor}",
+                    "item": {
+                        "type": "Container",
+                        "width": "100%",
+                        "height": "100%",
+                        "padding": "10dp",
+                        "items": [
+                            {
+                                "type": "Container",
+                                "direction": "row",
+                                "alignItems": "center",
+                                "width": "100%",
+                                "items": [
+                                    { "type": "ColorDot", "dotColor": "#FFF2AB", "targetNoteId": "${myNoteId}" },
+                                    { "type": "ColorDot", "dotColor": "#FFB3BA", "targetNoteId": "${myNoteId}" },
+                                    { "type": "ColorDot", "dotColor": "#BAFFC9", "targetNoteId": "${myNoteId}" },
+                                    { "type": "ColorDot", "dotColor": "#BAE1FF", "targetNoteId": "${myNoteId}" },
+                                    { "type": "ColorDot", "dotColor": "#E0BBE4", "targetNoteId": "${myNoteId}" },
+                                    {
+                                        "type": "Container",
+                                        "grow": 1
+                                    },
+                                    {
+                                        "type": "TouchWrapper",
+                                        "onPress": [
+                                            {
+                                                "type": "SetValue",
+                                                "componentId": "${myNoteId}",
+                                                "property": "display",
+                                                "value": "none"
+                                            }
+                                        ],
+                                        "item": {
+                                            "type": "Frame",
+                                            "width": "32dp",
+                                            "height": "32dp",
+                                            "borderRadius": "16dp",
+                                            "backgroundColor": "rgba(0,0,0,0.08)",
+                                            "item": {
+                                                "type": "Text",
+                                                "text": "✕",
+                                                "textAlign": "center",
+                                                "textAlignVertical": "center",
+                                                "fontSize": "18dp",
+                                                "color": "rgba(0,0,0,0.4)",
+                                                "width": "100%",
+                                                "height": "100%"
+                                            }
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "Frame",
+                                "width": "100%",
+                                "height": "1dp",
+                                "backgroundColor": "rgba(0,0,0,0.08)",
+                                "marginTop": "8dp",
+                                "marginBottom": "8dp"
+                            },
+                            {
+                                "type": "EditText",
+                                "id": "${myNoteId}-text",
+                                "hint": "Tap to type...",
+                                "width": "100%",
+                                "grow": 1,
+                                "fontSize": "20dp",
+                                "color": "rgba(0,0,0,0.8)",
+                                "hintColor": "rgba(0,0,0,0.35)",
+                                "borderWidth": 0,
+                                "backgroundColor": "transparent",
+                                "submitKeyType": "done"
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    },
+    "mainTemplate": {
+        "parameters": ["payload"],
+        "items": [
+            {
+                "type": "Container",
+                "id": "root",
+                "width": "100%",
+                "height": "100%",
+                "backgroundColor": "#121212",
+                "bind": [
+                    { "name": "nextNote", "value": 1, "type": "number" }
+                ],
+                "items": [
+                    {
+                        "type": "Container",
+                        "width": "100%",
+                        "height": "72dp",
+                        "direction": "row",
+                        "alignItems": "center",
+                        "paddingLeft": "24dp",
+                        "paddingRight": "24dp",
+                        "backgroundColor": "rgba(255,255,255,0.04)",
+                        "items": [
+                            {
+                                "type": "Text",
+                                "text": "Sticky Notes",
+                                "fontSize": "28dp",
+                                "color": "#FFF2AB",
+                                "fontWeight": "bold",
+                                "grow": 1
+                            },
+                            {
+                                "type": "TouchWrapper",
+                                "onPress": [
+                                    {
+                                        "type": "Sequential",
+                                        "when": "${nextNote <= 20}",
+                                        "commands": [
+                                            {
+                                                "type": "SetValue",
+                                                "componentId": "note${nextNote}",
+                                                "property": "display",
+                                                "value": "normal"
+                                            },
+                                            {
+                                                "type": "SetValue",
+                                                "componentId": "root",
+                                                "property": "nextNote",
+                                                "value": "${nextNote + 1}"
+                                            }
+                                        ]
+                                    }
+                                ],
+                                "item": {
+                                    "type": "Frame",
+                                    "backgroundColor": "#0078D7",
+                                    "borderRadius": "8dp",
+                                    "paddingLeft": "24dp",
+                                    "paddingRight": "24dp",
+                                    "paddingTop": "12dp",
+                                    "paddingBottom": "12dp",
+                                    "item": {
+                                        "type": "Text",
+                                        "text": "+ New Note",
+                                        "fontSize": "18dp",
+                                        "color": "white",
+                                        "fontWeight": "bold"
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "type": "Frame",
+                        "width": "100%",
+                        "height": "1dp",
+                        "backgroundColor": "rgba(255,255,255,0.06)"
+                    },
+                    {
+                        "type": "ScrollView",
+                        "width": "100%",
+                        "grow": 1,
+                        "item": {
+                            "type": "Container",
+                            "width": "100%",
+                            "items": [
+                                {
+                                    "type": "Container",
+                                    "display": "${nextNote > 1 ? 'none' : 'normal'}",
+                                    "width": "100%",
+                                    "height": "400dp",
+                                    "alignItems": "center",
+                                    "justifyContent": "center",
+                                    "items": [
+                                        {
+                                            "type": "Text",
+                                            "text": "No notes yet",
+                                            "fontSize": "32dp",
+                                            "color": "rgba(255,255,255,0.15)",
+                                            "fontWeight": "bold"
+                                        },
+                                        {
+                                            "type": "Text",
+                                            "text": "Tap '+ New Note' to get started",
+                                            "fontSize": "20dp",
+                                            "color": "rgba(255,255,255,0.1)",
+                                            "marginTop": "12dp"
+                                        }
+                                    ]
+                                },
+                                {
+                                    "type": "Container",
+                                    "width": "100%",
+                                    "direction": "row",
+                                    "wrap": "wrap",
+                                    "padding": "20dp",
+                                    "items": [
+                                        { "type": "StickyNote", "noteId": "note1" },
+                                        { "type": "StickyNote", "noteId": "note2" },
+                                        { "type": "StickyNote", "noteId": "note3" },
+                                        { "type": "StickyNote", "noteId": "note4" },
+                                        { "type": "StickyNote", "noteId": "note5" },
+                                        { "type": "StickyNote", "noteId": "note6" },
+                                        { "type": "StickyNote", "noteId": "note7" },
+                                        { "type": "StickyNote", "noteId": "note8" },
+                                        { "type": "StickyNote", "noteId": "note9" },
+                                        { "type": "StickyNote", "noteId": "note10" },
+                                        { "type": "StickyNote", "noteId": "note11" },
+                                        { "type": "StickyNote", "noteId": "note12" },
+                                        { "type": "StickyNote", "noteId": "note13" },
+                                        { "type": "StickyNote", "noteId": "note14" },
+                                        { "type": "StickyNote", "noteId": "note15" },
+                                        { "type": "StickyNote", "noteId": "note16" },
+                                        { "type": "StickyNote", "noteId": "note17" },
+                                        { "type": "StickyNote", "noteId": "note18" },
+                                        { "type": "StickyNote", "noteId": "note19" },
+                                        { "type": "StickyNote", "noteId": "note20" }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}
