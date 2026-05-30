@@ -129,15 +129,23 @@ var HtmlMessageHandler = {
             var deviceId = sys.device && sys.device.deviceId;
 
             if (!apiAccessToken || !deviceId) {
-                console.log('Missing apiAccessToken or deviceId, skipping DataStore update');
+                console.log('Missing token or deviceId');
                 return handlerInput.responseBuilder
+                    .addDirective({
+                        type: 'Alexa.Presentation.HTML.HandleMessage',
+                        message: { status: 'error', reason: 'no-token-or-device', hasToken: !!apiAccessToken, hasDevice: !!deviceId }
+                    })
                     .withShouldEndSession(undefined)
                     .getResponse();
             }
 
             return updateDataStore(apiEndpoint, apiAccessToken, deviceId, showBell)
-                .then(function() {
+                .then(function(statusCode) {
                     return handlerInput.responseBuilder
+                        .addDirective({
+                            type: 'Alexa.Presentation.HTML.HandleMessage',
+                            message: { status: statusCode === 200 ? 'ok' : 'fail', code: statusCode, bell: showBell }
+                        })
                         .withShouldEndSession(undefined)
                         .getResponse();
                 });

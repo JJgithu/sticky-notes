@@ -70,6 +70,11 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
   border-width:0 0 10px 10px;
   border-color:transparent transparent rgba(0,0,0,0.2) transparent;
 }
+.debug-bar{
+  position:fixed;bottom:0;left:0;right:0;height:22px;
+  background:rgba(0,0,0,0.7);color:#0f0;font-size:11px;
+  padding:3px 10px;z-index:99998;font-family:monospace;
+}
 </style>
 </head>
 <body>
@@ -96,6 +101,7 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 </div>
 
 <div id="workspace"></div>
+<div class="debug-bar" id="dbg">Alexa SDK: loading...</div>
 
 <script>
 /* ── Quick Stickies — Strict ES5, no modern APIs ── */
@@ -110,15 +116,25 @@ window.onerror = function(msg, url, line) {
 
 /* Initialize Alexa HTML SDK client (required by the runtime) */
 var alexaClient = null;
+var dbg = document.getElementById('dbg');
+function setDbg(txt) { if (dbg) dbg.textContent = txt; }
+
 if (typeof Alexa !== 'undefined' && Alexa.create) {
   Alexa.create({version: '1.1'})
     .then(function(args) {
       alexaClient = args.alexa;
-      console.log('Alexa client ready');
+      setDbg('Alexa SDK: ready | Alert: off');
+
+      /* Listen for messages back from Lambda */
+      alexaClient.skill.onMessage(function(msg) {
+        setDbg('Lambda response: ' + JSON.stringify(msg));
+      });
     })
     .catch(function(err) {
-      console.log('Alexa client error: ' + err);
+      setDbg('Alexa SDK error: ' + err);
     });
+} else {
+  setDbg('Alexa SDK: not available (browser mode)');
 }
 
 var workspace = document.getElementById('workspace');
@@ -384,7 +400,10 @@ document.addEventListener('mouseup', function(e) {
 /* ── Alert toggle ── */
 function toggleAlert(checked) {
   if (alexaClient && alexaClient.skill && alexaClient.skill.sendMessage) {
+    setDbg('Sending alert=' + checked + ' to Lambda...');
     alexaClient.skill.sendMessage({ type: 'setAlert', value: checked });
+  } else {
+    setDbg('Cannot send: Alexa SDK not ready');
   }
 }
 
