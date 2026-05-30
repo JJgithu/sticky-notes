@@ -114,7 +114,7 @@ var UserEventHandler = {
 // ── Handle messages from HTML web app ──
 var HtmlMessageHandler = {
     canHandle: function(handlerInput) {
-        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'Alexa.Presentation.HTML.HandleMessage';
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'Alexa.Presentation.HTML.Message';
     },
     handle: function(handlerInput) {
         var msg = handlerInput.requestEnvelope.request.message || {};
@@ -124,9 +124,17 @@ var HtmlMessageHandler = {
             var showBell = !!msg.value;
             console.log('Setting alert bell to: ' + showBell);
 
-            var apiEndpoint = handlerInput.requestEnvelope.context.System.apiEndpoint;
-            var apiAccessToken = handlerInput.requestEnvelope.context.System.apiAccessToken;
-            var deviceId = handlerInput.requestEnvelope.context.System.device.deviceId;
+            var sys = handlerInput.requestEnvelope.context.System;
+            var apiEndpoint = sys.apiEndpoint || 'https://api.amazonalexa.com';
+            var apiAccessToken = sys.apiAccessToken;
+            var deviceId = sys.device && sys.device.deviceId;
+
+            if (!apiAccessToken || !deviceId) {
+                console.log('Missing apiAccessToken or deviceId, skipping DataStore update');
+                return handlerInput.responseBuilder
+                    .withShouldEndSession(undefined)
+                    .getResponse();
+            }
 
             return updateDataStore(apiEndpoint, apiAccessToken, deviceId, showBell)
                 .then(function() {
