@@ -74,7 +74,7 @@ function startWebApp(handlerInput) {
             appName: 'Quick Stickies'
         },
         request: {
-            uri: 'https://jjgithu.github.io/sticky-notes/web/index.html',
+            uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=3',
             method: 'GET'
         },
         configuration: {
@@ -84,7 +84,6 @@ function startWebApp(handlerInput) {
 
     return handlerInput.responseBuilder
         .addDirective(startDirective)
-        .speak('Loading Quick Stickies.')
         .withShouldEndSession(undefined)
         .getResponse();
 }

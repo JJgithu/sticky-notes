@@ -1,0 +1,3 @@
+theme: null
+plugins: []
+exclude: ["*.md", "lambda", "models", "skill.json"]
