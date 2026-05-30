@@ -1,7 +1,25 @@
 {
     "type": "APL",
-    "version": "2023.2",
+    "version": "2024.2",
     "theme": "dark",
+    "extensions": [
+        {
+            "name": "DataStore",
+            "uri": "alexaext:datastore:10"
+        }
+    ],
+    "settings": {
+        "DataStore": {
+            "dataBindings": [
+                {
+                    "namespace": "quickStickies",
+                    "key": "alertState",
+                    "dataBindingName": "alertData",
+                    "dataType": "object"
+                }
+            ]
+        }
+    },
     "import": [
         {
             "name": "alexa-layouts",
@@ -30,22 +48,38 @@
                     "height": "100%",
                     "backgroundColor": "#1a1a2e",
                     "padding": 20,
-                    "alignItems": "center",
-                    "justifyContent": "center",
                     "items": [
                         {
-                            "type": "Text",
-                            "text": "Quick Stickies",
-                            "fontSize": "28dp",
-                            "color": "#FFF2AB",
-                            "fontWeight": "bold",
-                            "paddingBottom": "8dp"
+                            "type": "Container",
+                            "width": "100%",
+                            "height": "100%",
+                            "alignItems": "center",
+                            "justifyContent": "center",
+                            "items": [
+                                {
+                                    "type": "Text",
+                                    "text": "Quick Stickies",
+                                    "fontSize": "28dp",
+                                    "color": "#FFF2AB",
+                                    "fontWeight": "bold",
+                                    "paddingBottom": "8dp"
+                                },
+                                {
+                                    "type": "Text",
+                                    "text": "Tap to open",
+                                    "fontSize": "18dp",
+                                    "color": "#888888"
+                                }
+                            ]
                         },
                         {
                             "type": "Text",
-                            "text": "Tap to open",
-                            "fontSize": "18dp",
-                            "color": "#888888"
+                            "when": "${alertData.showBell == true}",
+                            "text": "🔔",
+                            "fontSize": "32dp",
+                            "position": "absolute",
+                            "top": "8dp",
+                            "right": "8dp"
                         }
                     ]
                 }

@@ -1,4 +1,5 @@
 var Alexa = require('ask-sdk-core');
+var https = require('https');
 
 // ── Logging ──
 var RequestLogInterceptor = {
@@ -6,6 +7,53 @@ var RequestLogInterceptor = {
         console.log('REQUEST: ' + Alexa.getRequestType(handlerInput.requestEnvelope));
     }
 };
+
+// ── DataStore REST API helper ──
+function updateDataStore(apiEndpoint, apiAccessToken, deviceId, showBell) {
+    var payload = JSON.stringify({
+        commands: [{
+            type: 'PUT_OBJECT',
+            namespace: 'quickStickies',
+            key: 'alertState',
+            content: { showBell: showBell }
+        }],
+        target: {
+            type: 'DEVICES',
+            items: [deviceId]
+        }
+    });
+
+    // Extract hostname from apiEndpoint (e.g. "https://api.amazonalexa.com")
+    var hostname = apiEndpoint.replace('https://', '').replace('http://', '');
+
+    var options = {
+        hostname: hostname,
+        path: '/v1/datastore/commands',
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + apiAccessToken,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload)
+        }
+    };
+
+    return new Promise(function(resolve, reject) {
+        var req = https.request(options, function(res) {
+            var body = '';
+            res.on('data', function(chunk) { body += chunk; });
+            res.on('end', function() {
+                console.log('DataStore response: ' + res.statusCode + ' ' + body);
+                resolve(res.statusCode);
+            });
+        });
+        req.on('error', function(err) {
+            console.log('DataStore error: ' + err.message);
+            resolve(500); // don't crash on network error
+        });
+        req.write(payload);
+        req.end();
+    });
+}
 
 // ── Start the HTML Web App ──
 function startWebApp(handlerInput) {
@@ -73,13 +121,54 @@ var HtmlMessageHandler = {
         console.log('HTML Message: ' + JSON.stringify(msg));
 
         if (msg.type === 'setAlert') {
-            console.log('Alert set to: ' + msg.value);
-            // TODO: persist alert state via DataStore for widget bell icon
+            var showBell = !!msg.value;
+            console.log('Setting alert bell to: ' + showBell);
+
+            var apiEndpoint = handlerInput.requestEnvelope.context.System.apiEndpoint;
+            var apiAccessToken = handlerInput.requestEnvelope.context.System.apiAccessToken;
+            var deviceId = handlerInput.requestEnvelope.context.System.device.deviceId;
+
+            return updateDataStore(apiEndpoint, apiAccessToken, deviceId, showBell)
+                .then(function() {
+                    return handlerInput.responseBuilder
+                        .withShouldEndSession(undefined)
+                        .getResponse();
+                });
         }
 
         return handlerInput.responseBuilder
             .withShouldEndSession(undefined)
             .getResponse();
+    }
+};
+
+// ── Widget installed → initialize DataStore with bell OFF ──
+var UsagesInstalledHandler = {
+    canHandle: function(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'Alexa.DataStore.PackageManager.UsagesInstalled';
+    },
+    handle: function(handlerInput) {
+        console.log('Widget installed → initializing DataStore');
+
+        var apiEndpoint = handlerInput.requestEnvelope.context.System.apiEndpoint;
+        var apiAccessToken = handlerInput.requestEnvelope.context.System.apiAccessToken;
+        var deviceId = handlerInput.requestEnvelope.context.System.device.deviceId;
+
+        return updateDataStore(apiEndpoint, apiAccessToken, deviceId, false)
+            .then(function() {
+                return handlerInput.responseBuilder.getResponse();
+            });
+    }
+};
+
+// ── Widget removed → clean up DataStore ──
+var UsagesRemovedHandler = {
+    canHandle: function(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'Alexa.DataStore.PackageManager.UsagesRemoved';
+    },
+    handle: function(handlerInput) {
+        console.log('Widget removed → cleaning up');
+        return handlerInput.responseBuilder.getResponse();
     }
 };
 
@@ -111,6 +200,8 @@ exports.handler = Alexa.SkillBuilders.custom()
         LaunchRequestHandler,
         UserEventHandler,
         HtmlMessageHandler,
+        UsagesInstalledHandler,
+        UsagesRemovedHandler,
         SessionEndedRequestHandler
     )
     .addRequestInterceptors(RequestLogInterceptor)
