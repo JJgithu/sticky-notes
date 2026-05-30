@@ -244,6 +244,25 @@ function scheduleSave() {
   saveTimer = setTimeout(function() { sendNotesToLambda(); }, 800);
 }
 
+/* ── Debounced canvas save (per note, 2s delay) ── */
+var canvasTimers = {};
+
+function scheduleCanvasSave(noteEl, canvasEl) {
+  var nId = noteEl.getAttribute('data-id');
+  if (!nId) return;
+  if (canvasTimers[nId]) clearTimeout(canvasTimers[nId]);
+  canvasTimers[nId] = setTimeout(function() {
+    delete canvasTimers[nId];
+    if (!alexaClient || !alexaClient.skill || !alexaClient.skill.sendMessage) return;
+    try {
+      var canvasData = canvasEl.toDataURL('image/png');
+      alexaClient.skill.sendMessage({ type: 'saveCanvas', noteId: nId, data: canvasData });
+    } catch(e) {
+      /* canvas might be tainted or unavailable */
+    }
+  }, 2000);
+}
+
 function sendNotesToLambda() {
   if (!alexaClient || !alexaClient.skill || !alexaClient.skill.sendMessage) {
     setDbg('Cannot save: Alexa SDK not ready');
@@ -362,24 +381,13 @@ function onEnd(e) {
   /* Save after drag, resize, or draw */
   if (dragNote || resizeNote) { scheduleSave(); }
 
-  /* Save canvas drawing to S3 */
+  /* Debounced canvas save — waits 2s after last stroke to capture all strokes */
   if (drawing && drawCvs) {
     scheduleSave();
-    var note = findUp(drawCvs, 'note');
-    if (note && alexaClient && alexaClient.skill && alexaClient.skill.sendMessage) {
-      var nId = note.getAttribute('data-id');
-      try {
-        var canvasData = drawCvs.toDataURL('image/png');
-        var dataSize = canvasData.length;
-        if (dataSize < 15000) {
-          alexaClient.skill.sendMessage({ type: 'saveCanvas', noteId: nId, data: canvasData });
-          setDbg('Saving canvas ' + nId + ' (' + Math.round(dataSize/1024) + 'KB)...');
-        } else {
-          setDbg('Canvas too large to save: ' + Math.round(dataSize/1024) + 'KB (max 15KB)');
-        }
-      } catch(err) {
-        setDbg('Canvas save error: ' + err.message);
-      }
+    var canvasRef = drawCvs;
+    var noteRef = findUp(drawCvs, 'note');
+    if (noteRef) {
+      scheduleCanvasSave(noteRef, canvasRef);
     }
   }
   dragNote = null; resizeNote = null;
