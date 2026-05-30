@@ -10,14 +10,33 @@ var RequestLogInterceptor = {
 // ── Start the HTML Web App ──
 function startWebApp(handlerInput) {
     console.log('Launching Quick Stickies Web App...');
+
+    // Check if device supports HTML
+    var htmlSupported = Alexa.getSupportedInterfaces(handlerInput.requestEnvelope)['Alexa.Presentation.HTML'];
+    if (!htmlSupported) {
+        console.log('Device does not support HTML');
+        return handlerInput.responseBuilder
+            .speak('Sorry, Quick Stickies requires a screen device with web support.')
+            .getResponse();
+    }
+
+    var startDirective = {
+        type: 'Alexa.Presentation.HTML.Start',
+        data: {
+            appName: 'Quick Stickies'
+        },
+        request: {
+            uri: 'https://jjgithu.github.io/sticky-notes/web/index.html',
+            method: 'GET'
+        },
+        configuration: {
+            timeoutInSeconds: 300
+        }
+    };
+
     return handlerInput.responseBuilder
-        .addDirective({
-            type: 'Alexa.Presentation.HTML.Start',
-            request: {
-                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html',
-                method: 'GET'
-            }
-        })
+        .addDirective(startDirective)
+        .speak('Loading Quick Stickies.')
         .withShouldEndSession(undefined)
         .getResponse();
 }

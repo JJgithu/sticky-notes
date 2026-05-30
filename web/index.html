@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Quick Stickies</title>
+<script src="https://cdn.html.games.alexa.a2z.com/alexa-html/latest/alexa-html.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden}
@@ -103,6 +104,19 @@ window.onerror = function(msg, url, line) {
   d.textContent = 'JS Error: ' + msg + ' [Line ' + line + ']';
   document.body.appendChild(d);
 };
+
+/* Initialize Alexa HTML SDK client (required by the runtime) */
+var alexaClient = null;
+if (typeof Alexa !== 'undefined' && Alexa.create) {
+  Alexa.create({version: '1.1'})
+    .then(function(args) {
+      alexaClient = args.alexa;
+      console.log('Alexa client ready');
+    })
+    .catch(function(err) {
+      console.log('Alexa client error: ' + err);
+    });
+}
 
 var workspace = document.getElementById('workspace');
 var noteCount = 0;
