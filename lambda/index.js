@@ -110,6 +110,9 @@ function updateDataStore(deviceId, showBell) {
     });
 }
 
+// ── Track alert state in memory (survives within Lambda container) ──
+var alertState = false;
+
 // ── Start the HTML Web App ──
 function startWebApp(handlerInput) {
     console.log('Launching Quick Stickies Web App...');
@@ -126,7 +129,8 @@ function startWebApp(handlerInput) {
     var startDirective = {
         type: 'Alexa.Presentation.HTML.Start',
         data: {
-            appName: 'Quick Stickies'
+            appName: 'Quick Stickies',
+            alertOn: alertState
         },
         request: {
             uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=3',
@@ -176,6 +180,7 @@ var HtmlMessageHandler = {
 
         if (msg.type === 'setAlert') {
             var showBell = !!msg.value;
+            alertState = showBell;  // remember for next launch
             console.log('Setting alert bell to: ' + showBell);
 
             var sys = handlerInput.requestEnvelope.context.System;

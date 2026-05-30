@@ -123,7 +123,16 @@ if (typeof Alexa !== 'undefined' && Alexa.create) {
   Alexa.create({version: '1.1'})
     .then(function(args) {
       alexaClient = args.alexa;
-      setDbg('Alexa SDK: ready | Alert: off');
+
+      /* Restore alert checkbox from Lambda's initial data */
+      var initData = args.message;
+      if (initData && initData.alertOn) {
+        var chk = document.getElementById('alertChk');
+        if (chk) chk.checked = true;
+        setDbg('Alexa SDK: ready | Alert: ON (restored)');
+      } else {
+        setDbg('Alexa SDK: ready | Alert: off');
+      }
 
       /* Listen for messages back from Lambda */
       alexaClient.skill.onMessage(function(msg) {
