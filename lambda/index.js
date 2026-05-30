@@ -67,15 +67,17 @@ function safeUserId(userId) {
 
 function saveCanvasToS3(userId, noteId, base64Data) {
     if (!S3_BUCKET || !base64Data) return Promise.resolve();
-    // Strip the data:image/...;base64, prefix
+    // Detect actual content type from data URI
+    var match = base64Data.match(/^data:(image\/\w+);base64,/);
+    var contentType = match ? match[1] : 'image/jpeg';
     var raw = base64Data.replace(/^data:image\/\w+;base64,/, '');
     return s3.putObject({
         Bucket: S3_BUCKET,
-        Key: 'canvas/' + safeUserId(userId) + '/' + noteId + '.png',
+        Key: 'canvas/' + safeUserId(userId) + '/' + noteId,
         Body: Buffer.from(raw, 'base64'),
-        ContentType: 'image/png'
+        ContentType: contentType
     }).promise().then(function() {
-        console.log('Canvas saved: ' + noteId);
+        console.log('Canvas saved: ' + noteId + ' (' + contentType + ', ' + raw.length + ' bytes)');
     }).catch(function(err) {
         console.log('Canvas save error: ' + err.message);
     });
@@ -86,12 +88,21 @@ function loadCanvasData(userId, notes) {
     var safe = safeUserId(userId);
     var promises = notes.map(function(note) {
         if (!note.id) return Promise.resolve();
+        // Try new key format (no extension) first, fall back to old .png key
+        var keyBase = 'canvas/' + safe + '/' + note.id;
         return s3.getObject({
             Bucket: S3_BUCKET,
-            Key: 'canvas/' + safe + '/' + note.id + '.png'
-        }).promise().then(function(data) {
-            note.canvasData = 'data:image/png;base64,' + data.Body.toString('base64');
-            console.log('Canvas loaded: ' + note.id + ' (' + note.canvasData.length + ' chars)');
+            Key: keyBase
+        }).promise().catch(function() {
+            // Fall back to old .png key
+            return s3.getObject({
+                Bucket: S3_BUCKET,
+                Key: keyBase + '.png'
+            }).promise();
+        }).then(function(data) {
+            var ct = data.ContentType || 'image/jpeg';
+            note.canvasData = 'data:' + ct + ';base64,' + data.Body.toString('base64');
+            console.log('Canvas loaded: ' + note.id + ' (' + ct + ', ' + note.canvasData.length + ' chars)');
         }).catch(function() {
             /* no canvas saved yet for this note */
         });
@@ -213,7 +224,7 @@ function startWebApp(handlerInput) {
                 notes: notesWithCanvas
             },
             request: {
-                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=5',
+                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=8',
                 method: 'GET'
             },
             configuration: {
