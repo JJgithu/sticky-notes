@@ -81,10 +81,10 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 
 <div id="toolbar">
   <span class="title">Quick Stickies</span>
-  <button class="tbtn tbtn-add" onclick="addNote()">+ Note</button>
+  <button class="tbtn tbtn-add" onclick="addNote();saveNotes()">+ Note</button>
   <div class="sep"></div>
-  <button class="tbtn mode-btn act" id="btn-type" onclick="setMode('type')">Type</button>
-  <button class="tbtn mode-btn" id="btn-draw" onclick="setMode('draw')">Draw</button>
+  <button class="tbtn mode-btn" id="btn-type" onclick="setMode('type')">Type</button>
+  <button class="tbtn mode-btn act" id="btn-draw" onclick="setMode('draw')">Draw</button>
   <button class="tbtn mode-btn" id="btn-erase" onclick="setMode('erase')">Erase</button>
   <div class="sep"></div>
   <span class="pdot sel" data-pc="#000000" style="background:#000" onclick="pickPen(this)"></span>
@@ -149,11 +149,12 @@ if (typeof Alexa !== 'undefined' && Alexa.create) {
 var workspace = document.getElementById('workspace');
 var noteCount = 0;
 var zIdx = 100;
-var currentMode = 'type';
+var currentMode = 'draw';   /* Draw mode is default */
 var penColor = '#000000';
 var penSize = 3;
 
 var NOTE_COLORS = ['#FFF2AB','#FFB3BA','#BAFFC9','#BAE1FF','#E0BBE4'];
+var STORAGE_KEY = 'quickStickiesNotes';
 
 /* ── Interaction state ── */
 var dragNote = null, dragOffX = 0, dragOffY = 0;
@@ -205,13 +206,16 @@ function pickPen(el) {
   }
 }
 
-/* ── Note creation ── */
-function addNote() {
+/* ══════════════════════════════════════════════ */
+/* ── Note creation (supports optional data)  ── */
+/* ══════════════════════════════════════════════ */
+function addNote(data) {
   noteCount++;
-  var w = 280, h = 220;
-  var col = NOTE_COLORS[(noteCount - 1) % NOTE_COLORS.length];
-  var x = 20 + ((noteCount - 1) % 6) * 50;
-  var y = 10 + (Math.floor((noteCount - 1) / 6) % 4) * 40;
+  var w = (data && data.w) || 280;
+  var h = (data && data.h) || 220;
+  var col = (data && data.color) || NOTE_COLORS[(noteCount - 1) % NOTE_COLORS.length];
+  var x = (data && data.x !== undefined) ? data.x : 20 + ((noteCount - 1) % 6) * 50;
+  var y = (data && data.y !== undefined) ? data.y : 10 + (Math.floor((noteCount - 1) / 6) % 4) * 40;
 
   var n = document.createElement('div');
   n.className = 'note' + (currentMode !== 'type' ? ' draw-active' : '');
@@ -247,6 +251,9 @@ function addNote() {
   var ta = document.createElement('textarea');
   ta.className = 'note-text';
   ta.placeholder = 'Tap to type...';
+  if (data && data.text) ta.value = data.text;
+  /* Auto-save on text change */
+  ta.addEventListener('input', function() { saveNotes(); }, false);
   n.appendChild(ta);
 
   /* Resize handle */
@@ -255,6 +262,64 @@ function addNote() {
   n.appendChild(rh);
 
   workspace.appendChild(n);
+
+  /* Restore canvas drawing if we have saved data */
+  if (data && data.canvasData) {
+    var img = new Image();
+    img.onload = function() {
+      cvs.getContext('2d').drawImage(img, 0, 0);
+    };
+    img.src = data.canvasData;
+  }
+
+  return n;
+}
+
+/* ══════════════════════════════════════════════ */
+/* ── Save & Load notes to localStorage       ── */
+/* ══════════════════════════════════════════════ */
+function saveNotes() {
+  try {
+    var notes = workspace.querySelectorAll('.note');
+    var arr = [];
+    for (var i = 0; i < notes.length; i++) {
+      var n = notes[i];
+      var cvs = n.querySelector('.note-canvas');
+      var ta = n.querySelector('.note-text');
+      var canvasData = '';
+      try {
+        canvasData = cvs ? cvs.toDataURL('image/png') : '';
+      } catch(e) { canvasData = ''; }
+
+      arr.push({
+        x: parseInt(n.style.left, 10) || 0,
+        y: parseInt(n.style.top, 10) || 0,
+        w: n.offsetWidth,
+        h: n.offsetHeight,
+        color: n.style.background || n.style.backgroundColor || '#FFF2AB',
+        text: ta ? ta.value : '',
+        canvasData: canvasData
+      });
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+  } catch(e) {
+    /* localStorage might not be available */
+  }
+}
+
+function loadNotes() {
+  try {
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    var arr = JSON.parse(raw);
+    if (!arr || !arr.length) return false;
+    for (var i = 0; i < arr.length; i++) {
+      addNote(arr[i]);
+    }
+    return true;
+  } catch(e) {
+    return false;
+  }
 }
 
 /* ── Touch: start ── */
@@ -271,12 +336,14 @@ function onStart(e) {
   /* Delete */
   if (hasClass(el, 'note-del')) {
     note.parentNode.removeChild(note);
+    saveNotes();
     e.preventDefault(); return;
   }
 
   /* Note color dot */
   if (hasClass(el, 'cdot') && findUp(el, 'note-hdr')) {
     note.style.background = el.getAttribute('data-color');
+    saveNotes();
     e.preventDefault(); return;
   }
 
@@ -383,6 +450,12 @@ function onEnd(e) {
       cvs.getContext('2d').drawImage(tmp, 0, 0);
     }
   }
+
+  /* Save after drag, resize, or draw */
+  if (dragNote || resizeNote || drawing) {
+    saveNotes();
+  }
+
   dragNote = null; resizeNote = null;
   drawing = false; drawCvs = null; drawCtx = null;
 }
@@ -416,8 +489,11 @@ function toggleAlert(checked) {
   }
 }
 
-/* Add a first note automatically */
-addNote();
+/* ── Boot: load saved notes or create a blank one ── */
+var loaded = loadNotes();
+if (!loaded) {
+  addNote();
+}
 </script>
 </body>
 </html>
