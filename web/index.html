@@ -252,6 +252,36 @@ function scheduleSave() {
   saveTimer = setTimeout(function() { sendNotesToLambda(); }, 800);
 }
 
+/* ── Adaptive canvas compression (always fits under 16KB) ── */
+function compressCanvas(canvasEl, bgColor) {
+  var w = canvasEl.width, h = canvasEl.height;
+  var scales = [1, 0.75, 0.5, 0.25];
+  var qualities = [0.6, 0.4, 0.2, 0.1];
+  for (var s = 0; s < scales.length; s++) {
+    for (var q = 0; q < qualities.length; q++) {
+      var sw = Math.round(w * scales[s]);
+      var sh = Math.round(h * scales[s]);
+      if (sw < 10 || sh < 10) continue;
+      var tmp = document.createElement('canvas');
+      tmp.width = sw; tmp.height = sh;
+      var ctx = tmp.getContext('2d');
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, sw, sh);
+      ctx.drawImage(canvasEl, 0, 0, sw, sh);
+      var data = tmp.toDataURL('image/jpeg', qualities[q]);
+      if (data.length < 14000) return data;
+    }
+  }
+  /* Last resort: tiny thumbnail */
+  var tiny = document.createElement('canvas');
+  tiny.width = 70; tiny.height = Math.round(h * 70 / w);
+  var tc = tiny.getContext('2d');
+  tc.fillStyle = bgColor;
+  tc.fillRect(0, 0, tiny.width, tiny.height);
+  tc.drawImage(canvasEl, 0, 0, tiny.width, tiny.height);
+  return tiny.toDataURL('image/jpeg', 0.1);
+}
+
 /* ── Debounced canvas save (per note, 2s delay) ── */
 var canvasTimers = {};
 
@@ -263,17 +293,8 @@ function scheduleCanvasSave(noteEl, canvasEl) {
     delete canvasTimers[nId];
     if (!alexaClient || !alexaClient.skill || !alexaClient.skill.sendMessage) return;
     try {
-      /* Create temp canvas with note's background color filled in,
-         then composite the drawing on top. This lets us use JPEG
-         (much smaller than PNG) without losing the background. */
-      var w = canvasEl.width, h = canvasEl.height;
-      var tmp = document.createElement('canvas');
-      tmp.width = w; tmp.height = h;
-      var ctx = tmp.getContext('2d');
-      ctx.fillStyle = noteEl.getAttribute('data-color') || '#FFF2AB';
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(canvasEl, 0, 0);
-      var canvasData = tmp.toDataURL('image/jpeg', 0.6);
+      var bgColor = noteEl.getAttribute('data-color') || '#FFF2AB';
+      var canvasData = compressCanvas(canvasEl, bgColor);
       alexaClient.skill.sendMessage({ type: 'saveCanvas', noteId: nId, data: canvasData });
     } catch(e) {
       /* canvas might be tainted or unavailable */
