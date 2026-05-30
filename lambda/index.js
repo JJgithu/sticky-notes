@@ -1,5 +1,13 @@
 var Alexa = require('ask-sdk-core');
 var https = require('https');
+var querystring = require('querystring');
+
+// ══════════════════════════════════════════════════════════════
+// !! FILL THESE IN from Developer Console → Build → Permissions
+// !! (scroll to bottom to find "Alexa Client Id" and "Alexa Client Secret")
+// ══════════════════════════════════════════════════════════════
+var SKILL_CLIENT_ID     = 'PASTE_YOUR_CLIENT_ID_HERE';
+var SKILL_CLIENT_SECRET = 'PASTE_YOUR_CLIENT_SECRET_HERE';
 
 // ── Logging ──
 var RequestLogInterceptor = {
@@ -8,32 +16,22 @@ var RequestLogInterceptor = {
     }
 };
 
-// ── DataStore REST API helper ──
-function updateDataStore(apiEndpoint, apiAccessToken, deviceId, showBell) {
-    var payload = JSON.stringify({
-        commands: [{
-            type: 'PUT_OBJECT',
-            namespace: 'quickStickies',
-            key: 'alertState',
-            content: { showBell: showBell }
-        }],
-        target: {
-            type: 'DEVICES',
-            items: [deviceId]
-        }
+// ── Get LWA token with alexa::datastore scope ──
+function getLwaToken() {
+    var postData = querystring.stringify({
+        grant_type: 'client_credentials',
+        client_id: SKILL_CLIENT_ID,
+        client_secret: SKILL_CLIENT_SECRET,
+        scope: 'alexa::datastore'
     });
 
-    // Extract hostname from apiEndpoint (e.g. "https://api.amazonalexa.com")
-    var hostname = apiEndpoint.replace('https://', '').replace('http://', '');
-
     var options = {
-        hostname: hostname,
-        path: '/v1/datastore/commands',
+        hostname: 'api.amazon.com',
+        path: '/auth/o2/token',
         method: 'POST',
         headers: {
-            'Authorization': 'Bearer ' + apiAccessToken,
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(payload)
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Length': Buffer.byteLength(postData)
         }
     };
 
@@ -42,16 +40,73 @@ function updateDataStore(apiEndpoint, apiAccessToken, deviceId, showBell) {
             var body = '';
             res.on('data', function(chunk) { body += chunk; });
             res.on('end', function() {
-                console.log('DataStore response: ' + res.statusCode + ' ' + body);
-                resolve(res.statusCode);
+                console.log('LWA response: ' + res.statusCode);
+                if (res.statusCode === 200) {
+                    var data = JSON.parse(body);
+                    resolve(data.access_token);
+                } else {
+                    console.log('LWA error body: ' + body);
+                    resolve(null);
+                }
             });
         });
         req.on('error', function(err) {
-            console.log('DataStore error: ' + err.message);
-            resolve(500); // don't crash on network error
+            console.log('LWA error: ' + err.message);
+            resolve(null);
         });
-        req.write(payload);
+        req.write(postData);
         req.end();
+    });
+}
+
+// ── DataStore REST API helper ──
+function updateDataStore(deviceId, showBell) {
+    return getLwaToken().then(function(token) {
+        if (!token) {
+            console.log('No LWA token, cannot update DataStore');
+            return 401;
+        }
+
+        var payload = JSON.stringify({
+            commands: [{
+                type: 'PUT_OBJECT',
+                namespace: 'quickStickies',
+                key: 'alertState',
+                content: { showBell: showBell }
+            }],
+            target: {
+                type: 'DEVICES',
+                items: [deviceId]
+            }
+        });
+
+        var options = {
+            hostname: 'api.amazonalexa.com',
+            path: '/v1/datastore/commands',
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + token,
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(payload)
+            }
+        };
+
+        return new Promise(function(resolve) {
+            var req = https.request(options, function(res) {
+                var body = '';
+                res.on('data', function(chunk) { body += chunk; });
+                res.on('end', function() {
+                    console.log('DataStore response: ' + res.statusCode + ' ' + body);
+                    resolve(res.statusCode);
+                });
+            });
+            req.on('error', function(err) {
+                console.log('DataStore error: ' + err.message);
+                resolve(500);
+            });
+            req.write(payload);
+            req.end();
+        });
     });
 }
 
@@ -124,22 +179,20 @@ var HtmlMessageHandler = {
             console.log('Setting alert bell to: ' + showBell);
 
             var sys = handlerInput.requestEnvelope.context.System;
-            var apiEndpoint = sys.apiEndpoint || 'https://api.amazonalexa.com';
-            var apiAccessToken = sys.apiAccessToken;
             var deviceId = sys.device && sys.device.deviceId;
 
-            if (!apiAccessToken || !deviceId) {
-                console.log('Missing token or deviceId');
+            if (!deviceId) {
+                console.log('Missing deviceId');
                 return handlerInput.responseBuilder
                     .addDirective({
                         type: 'Alexa.Presentation.HTML.HandleMessage',
-                        message: { status: 'error', reason: 'no-token-or-device', hasToken: !!apiAccessToken, hasDevice: !!deviceId }
+                        message: { status: 'error', reason: 'no-device-id' }
                     })
                     .withShouldEndSession(undefined)
                     .getResponse();
             }
 
-            return updateDataStore(apiEndpoint, apiAccessToken, deviceId, showBell)
+            return updateDataStore(deviceId, showBell)
                 .then(function(statusCode) {
                     return handlerInput.responseBuilder
                         .addDirective({
@@ -165,11 +218,9 @@ var UsagesInstalledHandler = {
     handle: function(handlerInput) {
         console.log('Widget installed → initializing DataStore');
 
-        var apiEndpoint = handlerInput.requestEnvelope.context.System.apiEndpoint;
-        var apiAccessToken = handlerInput.requestEnvelope.context.System.apiAccessToken;
         var deviceId = handlerInput.requestEnvelope.context.System.device.deviceId;
 
-        return updateDataStore(apiEndpoint, apiAccessToken, deviceId, false)
+        return updateDataStore(deviceId, false)
             .then(function() {
                 return handlerInput.responseBuilder.getResponse();
             });
