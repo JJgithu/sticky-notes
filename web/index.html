@@ -70,18 +70,13 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
   border-width:0 0 10px 10px;
   border-color:transparent transparent rgba(0,0,0,0.2) transparent;
 }
-.debug-bar{
-  position:fixed;bottom:0;left:0;right:0;height:22px;
-  background:rgba(0,0,0,0.7);color:#0f0;font-size:11px;
-  padding:3px 10px;z-index:99998;font-family:monospace;
-}
 </style>
 </head>
 <body>
 
 <div id="toolbar">
   <span class="title">Quick Stickies</span>
-  <button class="tbtn tbtn-add" onclick="addNote();saveNotes()">+ Note</button>
+  <button class="tbtn tbtn-add" onclick="addNote();scheduleSave()">+ Note</button>
   <div class="sep"></div>
   <button class="tbtn mode-btn" id="btn-type" onclick="setMode('type')">Type</button>
   <button class="tbtn mode-btn act" id="btn-draw" onclick="setMode('draw')">Draw</button>
@@ -101,12 +96,10 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 </div>
 
 <div id="workspace"></div>
-<div class="debug-bar" id="dbg">Alexa SDK: loading...</div>
 
 <script>
 /* ── Quick Stickies — Strict ES5, no modern APIs ── */
 
-/* Global error reporter for Echo Show debugging */
 window.onerror = function(msg, url, line) {
   var d = document.createElement('div');
   d.style.cssText = 'position:fixed;top:0;left:0;right:0;background:red;color:white;z-index:99999;padding:8px;font-size:14px';
@@ -114,37 +107,9 @@ window.onerror = function(msg, url, line) {
   document.body.appendChild(d);
 };
 
-/* Initialize Alexa HTML SDK client (required by the runtime) */
+/* ── Globals ── */
 var alexaClient = null;
-var dbg = document.getElementById('dbg');
-function setDbg(txt) { if (dbg) dbg.textContent = txt; }
-
-if (typeof Alexa !== 'undefined' && Alexa.create) {
-  Alexa.create({version: '1.1'})
-    .then(function(args) {
-      alexaClient = args.alexa;
-
-      /* Restore alert checkbox from Lambda's initial data */
-      var initData = args.message;
-      if (initData && initData.alertOn) {
-        var chk = document.getElementById('alertChk');
-        if (chk) chk.checked = true;
-        setDbg('Alexa SDK: ready | Alert: ON (restored)');
-      } else {
-        setDbg('Alexa SDK: ready | Alert: off');
-      }
-
-      /* Listen for messages back from Lambda */
-      alexaClient.skill.onMessage(function(msg) {
-        setDbg('Lambda response: ' + JSON.stringify(msg));
-      });
-    })
-    .catch(function(err) {
-      setDbg('Alexa SDK error: ' + err);
-    });
-} else {
-  setDbg('Alexa SDK: not available (browser mode)');
-}
+function setDbg(txt) { /* debug bar removed */ }
 
 var workspace = document.getElementById('workspace');
 var noteCount = 0;
@@ -152,9 +117,9 @@ var zIdx = 100;
 var currentMode = 'draw';   /* Draw mode is default */
 var penColor = '#000000';
 var penSize = 3;
+var notesRestoredFromServer = false;
 
 var NOTE_COLORS = ['#FFF2AB','#FFB3BA','#BAFFC9','#BAE1FF','#E0BBE4'];
-var STORAGE_KEY = 'quickStickiesNotes';
 
 /* ── Interaction state ── */
 var dragNote = null, dragOffX = 0, dragOffY = 0;
@@ -167,20 +132,12 @@ function hasClass(el, c) {
   if (!el.className || typeof el.className !== 'string') return false;
   return (' ' + el.className + ' ').indexOf(' ' + c + ' ') !== -1;
 }
-
 function findUp(el, cls) {
-  while (el && el !== document.body) {
-    if (hasClass(el, cls)) return el;
-    el = el.parentNode;
-  }
+  while (el && el !== document.body) { if (hasClass(el, cls)) return el; el = el.parentNode; }
   return null;
 }
-
 function inToolbar(el) {
-  while (el && el !== document.body) {
-    if (el.id === 'toolbar') return true;
-    el = el.parentNode;
-  }
+  while (el && el !== document.body) { if (el.id === 'toolbar') return true; el = el.parentNode; }
   return false;
 }
 
@@ -207,10 +164,13 @@ function pickPen(el) {
 }
 
 /* ══════════════════════════════════════════════ */
-/* ── Note creation (supports optional data)  ── */
+/* ── Note creation                           ── */
 /* ══════════════════════════════════════════════ */
+var canvasUrlMap = {};  /* unused, kept for compat */
+
 function addNote(data) {
   noteCount++;
+  var noteId = (data && data.id) || ('n_' + Date.now() + '_' + Math.random().toString(36).substr(2,6));
   var w = (data && data.w) || 280;
   var h = (data && data.h) || 220;
   var col = (data && data.color) || NOTE_COLORS[(noteCount - 1) % NOTE_COLORS.length];
@@ -219,7 +179,9 @@ function addNote(data) {
 
   var n = document.createElement('div');
   n.className = 'note' + (currentMode !== 'type' ? ' draw-active' : '');
-  n.style.cssText = 'left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px;background:' + col + ';z-index:' + (zIdx++);
+  n.setAttribute('data-color', col);
+  n.setAttribute('data-id', noteId);
+  n.style.cssText = 'left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px;background-color:' + col + ';z-index:' + (zIdx++);
 
   /* Header */
   var hdr = document.createElement('div');
@@ -241,10 +203,8 @@ function addNote(data) {
   var cH = h - 34;
   var cvs = document.createElement('canvas');
   cvs.className = 'note-canvas';
-  cvs.width = w;
-  cvs.height = cH;
-  cvs.style.width = w + 'px';
-  cvs.style.height = cH + 'px';
+  cvs.width = w; cvs.height = cH;
+  cvs.style.width = w + 'px'; cvs.style.height = cH + 'px';
   n.appendChild(cvs);
 
   /* Textarea */
@@ -252,8 +212,7 @@ function addNote(data) {
   ta.className = 'note-text';
   ta.placeholder = 'Tap to type...';
   if (data && data.text) ta.value = data.text;
-  /* Auto-save on text change */
-  ta.addEventListener('input', function() { saveNotes(); }, false);
+  ta.addEventListener('input', function() { scheduleSave(); }, false);
   n.appendChild(ta);
 
   /* Resize handle */
@@ -263,7 +222,7 @@ function addNote(data) {
 
   workspace.appendChild(n);
 
-  /* Restore canvas drawing if we have saved data */
+  /* Restore canvas drawing from base64 data */
   if (data && data.canvasData) {
     var img = new Image();
     img.onload = function() {
@@ -276,224 +235,226 @@ function addNote(data) {
 }
 
 /* ══════════════════════════════════════════════ */
-/* ── Save & Load notes to localStorage       ── */
+/* ── Save notes to Lambda → S3 (debounced)  ── */
 /* ══════════════════════════════════════════════ */
-function saveNotes() {
-  try {
-    var notes = workspace.querySelectorAll('.note');
-    var arr = [];
-    for (var i = 0; i < notes.length; i++) {
-      var n = notes[i];
-      var cvs = n.querySelector('.note-canvas');
-      var ta = n.querySelector('.note-text');
-      var canvasData = '';
-      try {
-        canvasData = cvs ? cvs.toDataURL('image/png') : '';
-      } catch(e) { canvasData = ''; }
+var saveTimer = null;
 
-      arr.push({
-        x: parseInt(n.style.left, 10) || 0,
-        y: parseInt(n.style.top, 10) || 0,
-        w: n.offsetWidth,
-        h: n.offsetHeight,
-        color: n.style.background || n.style.backgroundColor || '#FFF2AB',
-        text: ta ? ta.value : '',
-        canvasData: canvasData
-      });
-    }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
-  } catch(e) {
-    /* localStorage might not be available */
-  }
+function scheduleSave() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(function() { sendNotesToLambda(); }, 800);
 }
 
-function loadNotes() {
-  try {
-    var raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return false;
-    var arr = JSON.parse(raw);
-    if (!arr || !arr.length) return false;
-    for (var i = 0; i < arr.length; i++) {
-      addNote(arr[i]);
-    }
-    return true;
-  } catch(e) {
-    return false;
+function sendNotesToLambda() {
+  if (!alexaClient || !alexaClient.skill || !alexaClient.skill.sendMessage) {
+    setDbg('Cannot save: Alexa SDK not ready');
+    return;
   }
+  var notes = workspace.querySelectorAll('.note');
+  var arr = [];
+  for (var i = 0; i < notes.length; i++) {
+    var n = notes[i];
+    var ta = n.querySelector('.note-text');
+    arr.push({
+      id: n.getAttribute('data-id') || '',
+      x: n.offsetLeft || 0,
+      y: n.offsetTop || 0,
+      w: n.offsetWidth,
+      h: n.offsetHeight,
+      color: n.getAttribute('data-color') || '#FFF2AB',
+      text: ta ? ta.value : ''
+    });
+  }
+  setDbg('Saving ' + arr.length + ' notes...');
+  alexaClient.skill.sendMessage({ type: 'saveNotes', notes: arr });
 }
 
-/* ── Touch: start ── */
+/* ══════════════════════════════════════════════ */
+/* ── Touch handlers                          ── */
+/* ══════════════════════════════════════════════ */
 function onStart(e) {
   var el = e.target;
-  if (inToolbar(el)) return;   /* let onclick handle toolbar */
-
+  if (inToolbar(el)) return;
   var t = e.touches ? e.touches[0] : e;
   var note = findUp(el, 'note');
   if (!note) return;
-
   note.style.zIndex = zIdx++;
 
-  /* Delete */
   if (hasClass(el, 'note-del')) {
     note.parentNode.removeChild(note);
-    saveNotes();
+    scheduleSave();
     e.preventDefault(); return;
   }
-
-  /* Note color dot */
   if (hasClass(el, 'cdot') && findUp(el, 'note-hdr')) {
-    note.style.background = el.getAttribute('data-color');
-    saveNotes();
+    var newCol = el.getAttribute('data-color');
+    note.style.backgroundColor = newCol;
+    note.setAttribute('data-color', newCol);
+    scheduleSave();
     e.preventDefault(); return;
   }
-
-  /* Resize handle */
   if (hasClass(el, 'resize-hdl')) {
     resizeNote = note;
     rsStartX = t.clientX; rsStartY = t.clientY;
     rsStartW = note.offsetWidth; rsStartH = note.offsetHeight;
     e.preventDefault(); return;
   }
-
-  /* Header → drag */
   if (hasClass(el, 'note-hdr') || findUp(el, 'note-hdr')) {
     dragNote = note;
     dragOffX = t.clientX - note.offsetLeft;
     dragOffY = t.clientY - note.offsetTop;
     e.preventDefault(); return;
   }
-
-  /* Canvas → draw / erase */
   if ((currentMode === 'draw' || currentMode === 'erase') && el.tagName === 'CANVAS') {
-    drawCvs = el;
-    drawCtx = el.getContext('2d');
-    drawing = true;
+    drawCvs = el; drawCtx = el.getContext('2d'); drawing = true;
     var r = el.getBoundingClientRect();
-    lastX = t.clientX - r.left;
-    lastY = t.clientY - r.top;
-    prevMidX = lastX;
-    prevMidY = lastY;
+    lastX = t.clientX - r.left; lastY = t.clientY - r.top;
+    prevMidX = lastX; prevMidY = lastY;
     e.preventDefault(); return;
   }
-
-  /* Textarea — allow default for keyboard */
 }
 
-/* ── Touch: move ── */
 function onMove(e) {
   var t = e.touches ? e.touches[0] : e;
-
-  /* Resize */
   if (resizeNote) {
     var nw = rsStartW + (t.clientX - rsStartX);
     var nh = rsStartH + (t.clientY - rsStartY);
-    if (nw < 150) nw = 150;
-    if (nh < 120) nh = 120;
-    resizeNote.style.width = nw + 'px';
-    resizeNote.style.height = nh + 'px';
+    if (nw < 150) nw = 150; if (nh < 120) nh = 120;
+    resizeNote.style.width = nw + 'px'; resizeNote.style.height = nh + 'px';
     var cvs = resizeNote.querySelector('.note-canvas');
     if (cvs) { cvs.style.width = nw + 'px'; cvs.style.height = (nh - 34) + 'px'; }
     e.preventDefault(); return;
   }
-
-  /* Drag */
   if (dragNote) {
     dragNote.style.left = (t.clientX - dragOffX) + 'px';
     dragNote.style.top  = (t.clientY - dragOffY) + 'px';
     e.preventDefault(); return;
   }
-
-  /* Draw — smooth bezier: chain curves via shared midpoints */
   if (drawing && drawCtx) {
     var r = drawCvs.getBoundingClientRect();
-    var x = t.clientX - r.left;
-    var y = t.clientY - r.top;
-    var mx = (lastX + x) / 2;
-    var my = (lastY + y) / 2;
-
+    var x = t.clientX - r.left; var y = t.clientY - r.top;
+    var mx = (lastX + x) / 2; var my = (lastY + y) / 2;
     drawCtx.beginPath();
     drawCtx.moveTo(prevMidX, prevMidY);
     drawCtx.quadraticCurveTo(lastX, lastY, mx, my);
-
     if (currentMode === 'erase') {
-      drawCtx.globalCompositeOperation = 'destination-out';
-      drawCtx.lineWidth = penSize * 4;
+      drawCtx.globalCompositeOperation = 'destination-out'; drawCtx.lineWidth = penSize * 4;
     } else {
-      drawCtx.globalCompositeOperation = 'source-over';
-      drawCtx.strokeStyle = penColor;
-      drawCtx.lineWidth = penSize;
+      drawCtx.globalCompositeOperation = 'source-over'; drawCtx.strokeStyle = penColor; drawCtx.lineWidth = penSize;
     }
-    drawCtx.lineCap = 'round';
-    drawCtx.lineJoin = 'round';
-    drawCtx.stroke();
-
-    prevMidX = mx; prevMidY = my;
-    lastX = x; lastY = y;
+    drawCtx.lineCap = 'round'; drawCtx.lineJoin = 'round'; drawCtx.stroke();
+    prevMidX = mx; prevMidY = my; lastX = x; lastY = y;
     e.preventDefault(); return;
   }
 }
 
-/* ── Touch: end ── */
 function onEnd(e) {
-  /* Finalize resize: update canvas resolution */
   if (resizeNote) {
     var cvs = resizeNote.querySelector('.note-canvas');
     if (cvs) {
       var tmp = document.createElement('canvas');
       tmp.width = cvs.width; tmp.height = cvs.height;
       tmp.getContext('2d').drawImage(cvs, 0, 0);
-
-      var w = resizeNote.offsetWidth;
-      var h = resizeNote.offsetHeight - 34;
+      var w = resizeNote.offsetWidth; var h = resizeNote.offsetHeight - 34;
       cvs.width = w; cvs.height = h;
       cvs.style.width = w + 'px'; cvs.style.height = h + 'px';
       cvs.getContext('2d').drawImage(tmp, 0, 0);
     }
   }
-
   /* Save after drag, resize, or draw */
-  if (dragNote || resizeNote || drawing) {
-    saveNotes();
-  }
+  if (dragNote || resizeNote) { scheduleSave(); }
 
+  /* Save canvas drawing to S3 */
+  if (drawing && drawCvs) {
+    scheduleSave();
+    var note = findUp(drawCvs, 'note');
+    if (note && alexaClient && alexaClient.skill && alexaClient.skill.sendMessage) {
+      var nId = note.getAttribute('data-id');
+      try {
+        var canvasData = drawCvs.toDataURL('image/png');
+        var dataSize = canvasData.length;
+        if (dataSize < 15000) {
+          alexaClient.skill.sendMessage({ type: 'saveCanvas', noteId: nId, data: canvasData });
+          setDbg('Saving canvas ' + nId + ' (' + Math.round(dataSize/1024) + 'KB)...');
+        } else {
+          setDbg('Canvas too large to save: ' + Math.round(dataSize/1024) + 'KB (max 15KB)');
+        }
+      } catch(err) {
+        setDbg('Canvas save error: ' + err.message);
+      }
+    }
+  }
   dragNote = null; resizeNote = null;
   drawing = false; drawCvs = null; drawCtx = null;
 }
 
-/* ── Attach touch listeners ── */
 document.addEventListener('touchstart', onStart, false);
 document.addEventListener('touchmove',  onMove,  false);
 document.addEventListener('touchend',   onEnd,   false);
 
-/* ── Mouse fallback for desktop testing ── */
 var mouseDown = false;
-document.addEventListener('mousedown', function(e) {
-  mouseDown = true;
-  e.touches = [e]; onStart(e);
-}, false);
-document.addEventListener('mousemove', function(e) {
-  if (!mouseDown) return;
-  e.touches = [e]; onMove(e);
-}, false);
-document.addEventListener('mouseup', function(e) {
-  mouseDown = false; onEnd(e);
-}, false);
+document.addEventListener('mousedown', function(e) { mouseDown = true; e.touches = [e]; onStart(e); }, false);
+document.addEventListener('mousemove', function(e) { if (!mouseDown) return; e.touches = [e]; onMove(e); }, false);
+document.addEventListener('mouseup', function(e) { mouseDown = false; onEnd(e); }, false);
 
 /* ── Alert toggle ── */
 function toggleAlert(checked) {
   if (alexaClient && alexaClient.skill && alexaClient.skill.sendMessage) {
-    setDbg('Sending alert=' + checked + ' to Lambda...');
+    setDbg('Sending alert=' + checked + '...');
     alexaClient.skill.sendMessage({ type: 'setAlert', value: checked });
   } else {
     setDbg('Cannot send: Alexa SDK not ready');
   }
 }
 
-/* ── Boot: load saved notes or create a blank one ── */
-var loaded = loadNotes();
-if (!loaded) {
-  addNote();
+/* ══════════════════════════════════════════════ */
+/* ── Initialize Alexa SDK + restore notes    ── */
+/* ══════════════════════════════════════════════ */
+if (typeof Alexa !== 'undefined' && Alexa.create) {
+  Alexa.create({version: '1.1'})
+    .then(function(args) {
+      alexaClient = args.alexa;
+      var initData = args.message;
+
+      /* Restore alert checkbox */
+      if (initData && initData.alertOn) {
+        var chk = document.getElementById('alertChk');
+        if (chk) chk.checked = true;
+      }
+
+      /* Restore saved notes from Lambda/S3 */
+      if (initData && initData.notes && initData.notes.length > 0) {
+        while (workspace.firstChild) workspace.removeChild(workspace.firstChild);
+        noteCount = 0;
+        var canvasCount = 0;
+        for (var i = 0; i < initData.notes.length; i++) {
+          if (initData.notes[i].canvasData) canvasCount++;
+          addNote(initData.notes[i]);
+        }
+        notesRestoredFromServer = true;
+        setDbg('Restored ' + initData.notes.length + ' notes, ' + canvasCount + ' drawings');
+      } else {
+        setDbg('Alexa SDK: ready | No saved notes');
+      }
+
+      /* Listen for Lambda responses */
+      alexaClient.skill.onMessage(function(msg) {
+        if (msg.type === 'saveResult') {
+          setDbg('Saved ' + msg.count + ' notes');
+        } else if (msg.type === 'canvasSaved') {
+          setDbg('Canvas saved: ' + msg.noteId);
+        } else {
+          setDbg('Lambda: ' + JSON.stringify(msg));
+        }
+      });
+    })
+    .catch(function(err) {
+      setDbg('Alexa SDK error: ' + err);
+    });
+} else {
+  setDbg('Browser mode (no server persistence)');
 }
+
+/* ── Boot: create one blank note (will be replaced if server has saved notes) ── */
+addNote();
 </script>
 </body>
 </html>

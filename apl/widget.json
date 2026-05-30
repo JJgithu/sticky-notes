@@ -47,15 +47,26 @@
                     "width": "100%",
                     "height": "100%",
                     "backgroundColor": "#1a1a2e",
-                    "padding": 16,
+                    "paddingLeft": 16,
+                    "paddingRight": 16,
+                    "paddingTop": 12,
+                    "paddingBottom": 12,
                     "justifyContent": "spaceBetween",
                     "items": [
                         {
+                            "type": "Text",
+                            "text": "${alertData.showBell == true ? '🔔' : ''}",
+                            "fontSize": "100dp",
+                            "color": "#ffffff",
+                            "textAlign": "center",
+                            "width": "100%"
+                        },
+                        {
                             "type": "Container",
                             "width": "100%",
-                            "grow": 1,
                             "alignItems": "center",
                             "justifyContent": "center",
+                            "grow": 1,
                             "items": [
                                 {
                                     "type": "Text",
@@ -75,14 +86,11 @@
                         },
                         {
                             "type": "Text",
-                            "when": "${alertData.showBell == true}",
-                            "text": "NEW NOTE PENDING REVIEW",
-                            "fontSize": "14dp",
-                            "color": "#2ecc71",
-                            "fontWeight": "bold",
+                            "text": "${alertData.showBell == true ? '🔔 ALERT ACTIVE' : ''}",
+                            "fontSize": "12dp",
+                            "color": "#ffffff",
                             "textAlign": "center",
-                            "width": "100%",
-                            "paddingBottom": "4dp"
+                            "width": "100%"
                         }
                     ]
                 }
