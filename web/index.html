@@ -263,7 +263,17 @@ function scheduleCanvasSave(noteEl, canvasEl) {
     delete canvasTimers[nId];
     if (!alexaClient || !alexaClient.skill || !alexaClient.skill.sendMessage) return;
     try {
-      var canvasData = canvasEl.toDataURL('image/png');
+      /* Create temp canvas with note's background color filled in,
+         then composite the drawing on top. This lets us use JPEG
+         (much smaller than PNG) without losing the background. */
+      var w = canvasEl.width, h = canvasEl.height;
+      var tmp = document.createElement('canvas');
+      tmp.width = w; tmp.height = h;
+      var ctx = tmp.getContext('2d');
+      ctx.fillStyle = noteEl.getAttribute('data-color') || '#FFF2AB';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(canvasEl, 0, 0);
+      var canvasData = tmp.toDataURL('image/jpeg', 0.6);
       alexaClient.skill.sendMessage({ type: 'saveCanvas', noteId: nId, data: canvasData });
     } catch(e) {
       /* canvas might be tainted or unavailable */
