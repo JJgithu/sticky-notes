@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Quick Stickies</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden}
+body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-select:none;user-select:none}
+
+#toolbar{
+  position:fixed;top:0;left:0;right:0;height:54px;
+  background:#16213e;display:flex;align-items:center;
+  padding:0 14px;z-index:9999;border-bottom:1px solid #0f3460;
+}
+#toolbar .title{color:#FFF2AB;font-weight:bold;font-size:18px;margin-right:14px}
+.tbtn{
+  padding:7px 14px;margin:0 3px;border:none;border-radius:6px;
+  color:#fff;font-size:14px;cursor:pointer;background:#333;
+}
+.tbtn.act{background:#0078D7}
+.tbtn-add{background:#0078D7}
+.sep{width:1px;height:28px;background:rgba(255,255,255,0.12);margin:0 8px}
+.pdot{
+  width:22px;height:22px;border-radius:11px;
+  border:2px solid rgba(255,255,255,0.25);margin:0 2px;
+  cursor:pointer;display:inline-block;
+}
+.pdot.sel{border-color:#fff}
+.sz-btn{padding:5px 8px;margin:0 2px;border:none;border-radius:4px;color:#ccc;font-size:12px;cursor:pointer;background:#2a2a4a}
+
+#workspace{position:absolute;top:54px;left:0;right:0;bottom:0;overflow:hidden}
+
+.note{position:absolute;border-radius:10px;overflow:visible;box-shadow:0 4px 16px rgba(0,0,0,0.5)}
+.note-hdr{
+  height:34px;display:flex;align-items:center;padding:0 6px;
+  cursor:move;background:rgba(0,0,0,0.06);border-radius:10px 10px 0 0;
+}
+.note-hdr .cdot{
+  width:16px;height:16px;border-radius:8px;
+  border:1px solid rgba(0,0,0,0.15);margin:0 2px;cursor:pointer;
+  display:inline-block;
+}
+.note-del{
+  margin-left:auto;width:24px;height:24px;text-align:center;
+  line-height:24px;border-radius:12px;cursor:pointer;
+  color:rgba(0,0,0,0.3);font-size:16px;background:rgba(0,0,0,0.06);
+}
+.note-canvas{position:absolute;top:34px;left:0;z-index:1;pointer-events:none}
+.note-text{
+  position:absolute;top:34px;left:0;right:0;bottom:0;
+  padding:8px;border:none;background:transparent;
+  font-size:16px;color:rgba(0,0,0,0.8);resize:none;outline:none;
+  font-family:sans-serif;z-index:2;touch-action:auto;
+}
+.draw-active .note-canvas{z-index:3;pointer-events:auto}
+.draw-active .note-text{pointer-events:none}
+
+.resize-hdl{
+  position:absolute;right:0;bottom:0;width:28px;height:28px;
+  cursor:nwse-resize;z-index:10;
+}
+.resize-hdl:after{
+  content:'';position:absolute;right:4px;bottom:4px;
+  width:0;height:0;border-style:solid;
+  border-width:0 0 10px 10px;
+  border-color:transparent transparent rgba(0,0,0,0.2) transparent;
+}
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <span class="title">Quick Stickies</span>
+  <button class="tbtn tbtn-add" onclick="addNote()">+ Note</button>
+  <div class="sep"></div>
+  <button class="tbtn mode-btn act" id="btn-type" onclick="setMode('type')">Type</button>
+  <button class="tbtn mode-btn" id="btn-draw" onclick="setMode('draw')">Draw</button>
+  <button class="tbtn mode-btn" id="btn-erase" onclick="setMode('erase')">Erase</button>
+  <div class="sep"></div>
+  <span class="pdot sel" data-pc="#000000" style="background:#000" onclick="pickPen(this)"></span>
+  <span class="pdot" data-pc="#e74c3c" style="background:#e74c3c" onclick="pickPen(this)"></span>
+  <span class="pdot" data-pc="#2ecc71" style="background:#2ecc71" onclick="pickPen(this)"></span>
+  <span class="pdot" data-pc="#3498db" style="background:#3498db" onclick="pickPen(this)"></span>
+  <span class="pdot" data-pc="#f39c12" style="background:#f39c12" onclick="pickPen(this)"></span>
+  <span class="pdot" data-pc="#ffffff" style="background:#fff" onclick="pickPen(this)"></span>
+  <div class="sep"></div>
+  <button class="sz-btn" onclick="penSize=2">Thin</button>
+  <button class="sz-btn" onclick="penSize=5">Med</button>
+  <button class="sz-btn" onclick="penSize=10">Thick</button>
+</div>
+
+<div id="workspace"></div>
+
+<script>
+/* ── Quick Stickies — Strict ES5, no modern APIs ── */
+
+/* Global error reporter for Echo Show debugging */
+window.onerror = function(msg, url, line) {
+  var d = document.createElement('div');
+  d.style.cssText = 'position:fixed;top:0;left:0;right:0;background:red;color:white;z-index:99999;padding:8px;font-size:14px';
+  d.textContent = 'JS Error: ' + msg + ' [Line ' + line + ']';
+  document.body.appendChild(d);
+};
+
+var workspace = document.getElementById('workspace');
+var noteCount = 0;
+var zIdx = 100;
+var currentMode = 'type';
+var penColor = '#000000';
+var penSize = 3;
+
+var NOTE_COLORS = ['#FFF2AB','#FFB3BA','#BAFFC9','#BAE1FF','#E0BBE4'];
+
+/* ── Interaction state ── */
+var dragNote = null, dragOffX = 0, dragOffY = 0;
+var resizeNote = null, rsStartX = 0, rsStartY = 0, rsStartW = 0, rsStartH = 0;
+var drawCvs = null, drawCtx = null, drawing = false, lastX = 0, lastY = 0;
+
+/* ── Helpers ── */
+function hasClass(el, c) { return el.className && el.className.indexOf(c) !== -1; }
+
+function findUp(el, cls) {
+  while (el && el !== document.body) {
+    if (hasClass(el, cls)) return el;
+    el = el.parentNode;
+  }
+  return null;
+}
+
+function inToolbar(el) {
+  while (el && el !== document.body) {
+    if (el.id === 'toolbar') return true;
+    el = el.parentNode;
+  }
+  return false;
+}
+
+/* ── Toolbar actions ── */
+function setMode(m) {
+  currentMode = m;
+  document.getElementById('btn-type').className = 'tbtn mode-btn' + (m === 'type' ? ' act' : '');
+  document.getElementById('btn-draw').className = 'tbtn mode-btn' + (m === 'draw' ? ' act' : '');
+  document.getElementById('btn-erase').className = 'tbtn mode-btn' + (m === 'erase' ? ' act' : '');
+  var notes = workspace.querySelectorAll('.note');
+  for (var i = 0; i < notes.length; i++) {
+    var cn = notes[i].className.replace(' draw-active', '');
+    if (m === 'draw' || m === 'erase') cn += ' draw-active';
+    notes[i].className = cn;
+  }
+}
+
+function pickPen(el) {
+  penColor = el.getAttribute('data-pc');
+  var dots = document.querySelectorAll('#toolbar .pdot');
+  for (var i = 0; i < dots.length; i++) {
+    dots[i].className = dots[i] === el ? 'pdot sel' : 'pdot';
+  }
+}
+
+/* ── Note creation ── */
+function addNote() {
+  noteCount++;
+  var w = 280, h = 220;
+  var col = NOTE_COLORS[(noteCount - 1) % NOTE_COLORS.length];
+  var x = 20 + ((noteCount - 1) % 6) * 50;
+  var y = 10 + (Math.floor((noteCount - 1) / 6) % 4) * 40;
+
+  var n = document.createElement('div');
+  n.className = 'note' + (currentMode !== 'type' ? ' draw-active' : '');
+  n.style.cssText = 'left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px;background:' + col + ';z-index:' + (zIdx++);
+
+  /* Header */
+  var hdr = document.createElement('div');
+  hdr.className = 'note-hdr';
+  for (var c = 0; c < NOTE_COLORS.length; c++) {
+    var dot = document.createElement('span');
+    dot.className = 'cdot';
+    dot.style.background = NOTE_COLORS[c];
+    dot.setAttribute('data-color', NOTE_COLORS[c]);
+    hdr.appendChild(dot);
+  }
+  var del = document.createElement('span');
+  del.className = 'note-del';
+  del.textContent = '\u2715';
+  hdr.appendChild(del);
+  n.appendChild(hdr);
+
+  /* Canvas */
+  var cH = h - 34;
+  var cvs = document.createElement('canvas');
+  cvs.className = 'note-canvas';
+  cvs.width = w;
+  cvs.height = cH;
+  cvs.style.width = w + 'px';
+  cvs.style.height = cH + 'px';
+  n.appendChild(cvs);
+
+  /* Textarea */
+  var ta = document.createElement('textarea');
+  ta.className = 'note-text';
+  ta.placeholder = 'Tap to type...';
+  n.appendChild(ta);
+
+  /* Resize handle */
+  var rh = document.createElement('div');
+  rh.className = 'resize-hdl';
+  n.appendChild(rh);
+
+  workspace.appendChild(n);
+}
+
+/* ── Touch: start ── */
+function onStart(e) {
+  var el = e.target;
+  if (inToolbar(el)) return;   /* let onclick handle toolbar */
+
+  var t = e.touches ? e.touches[0] : e;
+  var note = findUp(el, 'note');
+  if (!note) return;
+
+  note.style.zIndex = zIdx++;
+
+  /* Delete */
+  if (hasClass(el, 'note-del')) {
+    note.parentNode.removeChild(note);
+    e.preventDefault(); return;
+  }
+
+  /* Note color dot */
+  if (hasClass(el, 'cdot') && findUp(el, 'note-hdr')) {
+    note.style.background = el.getAttribute('data-color');
+    e.preventDefault(); return;
+  }
+
+  /* Resize handle */
+  if (hasClass(el, 'resize-hdl')) {
+    resizeNote = note;
+    rsStartX = t.clientX; rsStartY = t.clientY;
+    rsStartW = note.offsetWidth; rsStartH = note.offsetHeight;
+    e.preventDefault(); return;
+  }
+
+  /* Header → drag */
+  if (hasClass(el, 'note-hdr') || findUp(el, 'note-hdr')) {
+    dragNote = note;
+    dragOffX = t.clientX - note.offsetLeft;
+    dragOffY = t.clientY - note.offsetTop;
+    e.preventDefault(); return;
+  }
+
+  /* Canvas → draw / erase */
+  if ((currentMode === 'draw' || currentMode === 'erase') && el.tagName === 'CANVAS') {
+    drawCvs = el;
+    drawCtx = el.getContext('2d');
+    drawing = true;
+    var r = el.getBoundingClientRect();
+    lastX = t.clientX - r.left;
+    lastY = t.clientY - r.top;
+    e.preventDefault(); return;
+  }
+
+  /* Textarea — allow default for keyboard */
+}
+
+/* ── Touch: move ── */
+function onMove(e) {
+  var t = e.touches ? e.touches[0] : e;
+
+  /* Resize */
+  if (resizeNote) {
+    var nw = rsStartW + (t.clientX - rsStartX);
+    var nh = rsStartH + (t.clientY - rsStartY);
+    if (nw < 150) nw = 150;
+    if (nh < 120) nh = 120;
+    resizeNote.style.width = nw + 'px';
+    resizeNote.style.height = nh + 'px';
+    var cvs = resizeNote.querySelector('.note-canvas');
+    if (cvs) { cvs.style.width = nw + 'px'; cvs.style.height = (nh - 34) + 'px'; }
+    e.preventDefault(); return;
+  }
+
+  /* Drag */
+  if (dragNote) {
+    dragNote.style.left = (t.clientX - dragOffX) + 'px';
+    dragNote.style.top  = (t.clientY - dragOffY) + 'px';
+    e.preventDefault(); return;
+  }
+
+  /* Draw */
+  if (drawing && drawCtx) {
+    var r = drawCvs.getBoundingClientRect();
+    var x = t.clientX - r.left;
+    var y = t.clientY - r.top;
+    var mx = (lastX + x) / 2;
+    var my = (lastY + y) / 2;
+
+    drawCtx.beginPath();
+    drawCtx.moveTo(lastX, lastY);
+    drawCtx.quadraticCurveTo(lastX, lastY, mx, my);
+
+    if (currentMode === 'erase') {
+      drawCtx.globalCompositeOperation = 'destination-out';
+      drawCtx.lineWidth = penSize * 4;
+    } else {
+      drawCtx.globalCompositeOperation = 'source-over';
+      drawCtx.strokeStyle = penColor;
+      drawCtx.lineWidth = penSize;
+    }
+    drawCtx.lineCap = 'round';
+    drawCtx.lineJoin = 'round';
+    drawCtx.stroke();
+
+    lastX = x; lastY = y;
+    e.preventDefault(); return;
+  }
+}
+
+/* ── Touch: end ── */
+function onEnd(e) {
+  /* Finalize resize: update canvas resolution */
+  if (resizeNote) {
+    var cvs = resizeNote.querySelector('.note-canvas');
+    if (cvs) {
+      var tmp = document.createElement('canvas');
+      tmp.width = cvs.width; tmp.height = cvs.height;
+      tmp.getContext('2d').drawImage(cvs, 0, 0);
+
+      var w = resizeNote.offsetWidth;
+      var h = resizeNote.offsetHeight - 34;
+      cvs.width = w; cvs.height = h;
+      cvs.style.width = w + 'px'; cvs.style.height = h + 'px';
+      cvs.getContext('2d').drawImage(tmp, 0, 0);
+    }
+  }
+  dragNote = null; resizeNote = null;
+  drawing = false; drawCvs = null; drawCtx = null;
+}
+
+/* ── Attach touch listeners ── */
+document.addEventListener('touchstart', onStart, false);
+document.addEventListener('touchmove',  onMove,  false);
+document.addEventListener('touchend',   onEnd,   false);
+
+/* ── Mouse fallback for desktop testing ── */
+var mouseDown = false;
+document.addEventListener('mousedown', function(e) {
+  mouseDown = true;
+  e.touches = [e]; onStart(e);
+}, false);
+document.addEventListener('mousemove', function(e) {
+  if (!mouseDown) return;
+  e.touches = [e]; onMove(e);
+}, false);
+document.addEventListener('mouseup', function(e) {
+  mouseDown = false; onEnd(e);
+}, false);
+
+/* Add a first note automatically */
+addNote();
+</script>
+</body>
+</html>

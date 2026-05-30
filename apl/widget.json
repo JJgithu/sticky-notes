@@ -9,9 +9,7 @@
         }
     ],
     "mainTemplate": {
-        "parameters": [
-            "payload"
-        ],
+        "parameters": ["payload"],
         "items": [
             {
                 "type": "TouchWrapper",
@@ -20,9 +18,7 @@
                 "onPress": [
                     {
                         "type": "SendEvent",
-                        "arguments": [
-                            "OpenWidget"
-                        ],
+                        "arguments": ["OpenWidget"],
                         "flags": {
                             "interactionMode": "STANDARD"
                         }
@@ -32,14 +28,14 @@
                     "type": "Container",
                     "width": "100%",
                     "height": "100%",
-                    "backgroundColor": "#202020",
+                    "backgroundColor": "#1a1a2e",
                     "padding": 20,
                     "alignItems": "center",
                     "justifyContent": "center",
                     "items": [
                         {
                             "type": "Text",
-                            "text": "Sticky Notes",
+                            "text": "Quick Stickies",
                             "fontSize": "28dp",
                             "color": "#FFF2AB",
                             "fontWeight": "bold",

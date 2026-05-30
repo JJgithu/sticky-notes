@@ -1,105 +1,130 @@
-const Alexa = require('ask-sdk-core');
-
-// ── APL Document ──
-const appDocument = require('./app.json');
+var Alexa = require('ask-sdk-core');
 
 // ── Logging ──
-const RequestLogInterceptor = {
-    process(handlerInput) {
-        const type = Alexa.getRequestType(handlerInput.requestEnvelope);
-        console.log(`REQUEST: ${type}`);
+var RequestLogInterceptor = {
+    process: function(handlerInput) {
+        console.log('REQUEST: ' + Alexa.getRequestType(handlerInput.requestEnvelope));
     }
 };
 
-// ── Helper: Render the full-screen APL notes app ──
-function renderApp(handlerInput, speechText) {
-    const rb = handlerInput.responseBuilder
+// ── Start the HTML Web App ──
+function startWebApp(handlerInput) {
+    console.log('Launching Quick Stickies Web App...');
+    return handlerInput.responseBuilder
         .addDirective({
-            type: 'Alexa.Presentation.APL.RenderDocument',
-            token: 'STICKY_NOTES_APP',
-            document: appDocument
+            type: 'Alexa.Presentation.HTML.Start',
+            request: {
+                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html',
+                method: 'GET'
+            }
         })
-        .withShouldEndSession(undefined);
-
-    if (speechText) {
-        rb.speak(speechText);
-    }
-
-    return rb.getResponse();
+        .withShouldEndSession(undefined)
+        .getResponse();
 }
 
-// ── Handlers ──
-
-const LaunchRequestHandler = {
-    canHandle(handlerInput) {
+// ── Voice launch → go straight to HTML app ──
+var LaunchRequestHandler = {
+    canHandle: function(handlerInput) {
         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'LaunchRequest';
     },
-    handle(handlerInput) {
-        console.log('Voice Launch → Rendering APL App');
-        return renderApp(handlerInput, 'Sticky Notes is ready.');
+    handle: function(handlerInput) {
+        console.log('Voice Launch → HTML App');
+        return startWebApp(handlerInput);
     }
 };
 
-const UserEventHandler = {
-    canHandle(handlerInput) {
+// ── Widget tap & lobby button ──
+var UserEventHandler = {
+    canHandle: function(handlerInput) {
         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'Alexa.Presentation.APL.UserEvent';
     },
-    handle(handlerInput) {
-        const args = handlerInput.requestEnvelope.request.arguments || [];
-        const eventName = args[0];
+    handle: function(handlerInput) {
+        var args = handlerInput.requestEnvelope.request.arguments || [];
+        var eventName = args[0];
 
-        // Widget tap → open the full app
-        if (eventName === 'OpenWidget') {
-            console.log('Widget Tap → Rendering APL App');
-            return renderApp(handlerInput, 'Sticky Notes is ready.');
+        // Lobby button → launch HTML app
+        if (eventName === 'START_WEB_APP') {
+            console.log('Lobby Button → HTML App');
+            return startWebApp(handlerInput);
         }
 
-        // Keep-alive ping from the APL document's onMount timer
-        if (eventName === 'keepAlive') {
-            return handlerInput.responseBuilder
-                .withShouldEndSession(undefined)
-                .getResponse();
-        }
-
-        // Unknown event — respond silently
-        console.log('Unknown UserEvent:', eventName);
-        return handlerInput.responseBuilder.getResponse();
-    }
-};
-
-const SessionEndedRequestHandler = {
-    canHandle(handlerInput) {
-        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'SessionEndedRequest';
-    },
-    handle(handlerInput) {
-        console.log(`Session ended: ${handlerInput.requestEnvelope.request.reason}`);
-        return handlerInput.responseBuilder.getResponse();
-    }
-};
-
-const ErrorHandler = {
-    canHandle() {
-        return true;
-    },
-    handle(handlerInput, error) {
-        console.log(`Error: ${error.stack}`);
+        // Widget tap → show APL lobby screen
+        console.log('Widget Tap → APL Lobby');
         return handlerInput.responseBuilder
-            .speak('Sorry, something went wrong with Sticky Notes.')
+            .addDirective({
+                type: 'Alexa.Presentation.APL.RenderDocument',
+                token: 'LOBBY',
+                document: {
+                    type: 'APL',
+                    version: '2023.2',
+                    import: [{ name: 'alexa-layouts', version: '1.7.0' }],
+                    mainTemplate: {
+                        items: [{
+                            type: 'Container',
+                            width: '100%',
+                            height: '100%',
+                            backgroundColor: '#1a1a2e',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            items: [
+                                {
+                                    type: 'Text',
+                                    text: 'Quick Stickies',
+                                    fontSize: '42dp',
+                                    color: '#FFF2AB',
+                                    fontWeight: 'bold',
+                                    paddingBottom: '24dp'
+                                },
+                                {
+                                    type: 'AlexaButton',
+                                    buttonText: 'Open Quick Stickies',
+                                    buttonStyle: 'contained',
+                                    primaryAction: [{
+                                        type: 'SendEvent',
+                                        arguments: ['START_WEB_APP']
+                                    }]
+                                }
+                            ]
+                        }]
+                    }
+                }
+            })
+            .speak('Quick Stickies. Tap to open.')
+            .reprompt('Tap the button to open Quick Stickies.')
+            .withShouldEndSession(false)
             .getResponse();
     }
 };
 
-// ── Skill Builder ──
+// ── Session end ──
+var SessionEndedRequestHandler = {
+    canHandle: function(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'SessionEndedRequest';
+    },
+    handle: function(handlerInput) {
+        console.log('Session ended: ' + handlerInput.requestEnvelope.request.reason);
+        return handlerInput.responseBuilder.getResponse();
+    }
+};
+
+// ── Error fallback ──
+var ErrorHandler = {
+    canHandle: function() { return true; },
+    handle: function(handlerInput, error) {
+        console.log('Error: ' + error.stack);
+        return handlerInput.responseBuilder
+            .speak('Sorry, something went wrong with Quick Stickies.')
+            .getResponse();
+    }
+};
+
+// ── Build ──
 exports.handler = Alexa.SkillBuilders.custom()
     .addRequestHandlers(
         LaunchRequestHandler,
         UserEventHandler,
         SessionEndedRequestHandler
     )
-    .addRequestInterceptors(
-        RequestLogInterceptor
-    )
-    .addErrorHandlers(
-        ErrorHandler
-    )
+    .addRequestInterceptors(RequestLogInterceptor)
+    .addErrorHandlers(ErrorHandler)
     .lambda();
