@@ -52,65 +52,33 @@ var LaunchRequestHandler = {
     }
 };
 
-// ── Widget tap & lobby button ──
+// ── Widget tap → go straight to HTML app (no lobby) ──
 var UserEventHandler = {
     canHandle: function(handlerInput) {
         return Alexa.getRequestType(handlerInput.requestEnvelope) === 'Alexa.Presentation.APL.UserEvent';
     },
     handle: function(handlerInput) {
-        var args = handlerInput.requestEnvelope.request.arguments || [];
-        var eventName = args[0];
+        console.log('Widget Tap → HTML App (direct)');
+        return startWebApp(handlerInput);
+    }
+};
 
-        // Lobby button → launch HTML app
-        if (eventName === 'START_WEB_APP') {
-            console.log('Lobby Button → HTML App');
-            return startWebApp(handlerInput);
+// ── Handle messages from HTML web app ──
+var HtmlMessageHandler = {
+    canHandle: function(handlerInput) {
+        return Alexa.getRequestType(handlerInput.requestEnvelope) === 'Alexa.Presentation.HTML.HandleMessage';
+    },
+    handle: function(handlerInput) {
+        var msg = handlerInput.requestEnvelope.request.message || {};
+        console.log('HTML Message: ' + JSON.stringify(msg));
+
+        if (msg.type === 'setAlert') {
+            console.log('Alert set to: ' + msg.value);
+            // TODO: persist alert state via DataStore for widget bell icon
         }
 
-        // Widget tap → show APL lobby screen
-        console.log('Widget Tap → APL Lobby');
         return handlerInput.responseBuilder
-            .addDirective({
-                type: 'Alexa.Presentation.APL.RenderDocument',
-                token: 'LOBBY',
-                document: {
-                    type: 'APL',
-                    version: '2023.2',
-                    import: [{ name: 'alexa-layouts', version: '1.7.0' }],
-                    mainTemplate: {
-                        items: [{
-                            type: 'Container',
-                            width: '100%',
-                            height: '100%',
-                            backgroundColor: '#1a1a2e',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            items: [
-                                {
-                                    type: 'Text',
-                                    text: 'Quick Stickies',
-                                    fontSize: '42dp',
-                                    color: '#FFF2AB',
-                                    fontWeight: 'bold',
-                                    paddingBottom: '24dp'
-                                },
-                                {
-                                    type: 'AlexaButton',
-                                    buttonText: 'Open Quick Stickies',
-                                    buttonStyle: 'contained',
-                                    primaryAction: [{
-                                        type: 'SendEvent',
-                                        arguments: ['START_WEB_APP']
-                                    }]
-                                }
-                            ]
-                        }]
-                    }
-                }
-            })
-            .speak('Quick Stickies. Tap to open.')
-            .reprompt('Tap the button to open Quick Stickies.')
-            .withShouldEndSession(false)
+            .withShouldEndSession(undefined)
             .getResponse();
     }
 };
@@ -142,6 +110,7 @@ exports.handler = Alexa.SkillBuilders.custom()
     .addRequestHandlers(
         LaunchRequestHandler,
         UserEventHandler,
+        HtmlMessageHandler,
         SessionEndedRequestHandler
     )
     .addRequestInterceptors(RequestLogInterceptor)

@@ -30,6 +30,8 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 }
 .pdot.sel{border-color:#fff}
 .sz-btn{padding:5px 8px;margin:0 2px;border:none;border-radius:4px;color:#ccc;font-size:12px;cursor:pointer;background:#2a2a4a}
+.alert-wrap{margin-left:auto;display:flex;align-items:center;color:#fff;font-size:13px;cursor:pointer}
+.alert-wrap input{margin-right:5px;width:16px;height:16px;cursor:pointer}
 
 #workspace{position:absolute;top:54px;left:0;right:0;bottom:0;overflow:hidden}
 
@@ -90,6 +92,7 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
   <button class="sz-btn" onclick="penSize=2">Thin</button>
   <button class="sz-btn" onclick="penSize=5">Med</button>
   <button class="sz-btn" onclick="penSize=10">Thick</button>
+  <label class="alert-wrap"><input type="checkbox" id="alertChk" onchange="toggleAlert(this.checked)"> ALERT</label>
 </div>
 
 <div id="workspace"></div>
@@ -130,10 +133,14 @@ var NOTE_COLORS = ['#FFF2AB','#FFB3BA','#BAFFC9','#BAE1FF','#E0BBE4'];
 /* ── Interaction state ── */
 var dragNote = null, dragOffX = 0, dragOffY = 0;
 var resizeNote = null, rsStartX = 0, rsStartY = 0, rsStartW = 0, rsStartH = 0;
-var drawCvs = null, drawCtx = null, drawing = false, lastX = 0, lastY = 0;
+var drawCvs = null, drawCtx = null, drawing = false;
+var lastX = 0, lastY = 0, prevMidX = 0, prevMidY = 0;
 
 /* ── Helpers ── */
-function hasClass(el, c) { return el.className && el.className.indexOf(c) !== -1; }
+function hasClass(el, c) {
+  if (!el.className || typeof el.className !== 'string') return false;
+  return (' ' + el.className + ' ').indexOf(' ' + c + ' ') !== -1;
+}
 
 function findUp(el, cls) {
   while (el && el !== document.body) {
@@ -272,6 +279,8 @@ function onStart(e) {
     var r = el.getBoundingClientRect();
     lastX = t.clientX - r.left;
     lastY = t.clientY - r.top;
+    prevMidX = lastX;
+    prevMidY = lastY;
     e.preventDefault(); return;
   }
 
@@ -302,7 +311,7 @@ function onMove(e) {
     e.preventDefault(); return;
   }
 
-  /* Draw */
+  /* Draw — smooth bezier: chain curves via shared midpoints */
   if (drawing && drawCtx) {
     var r = drawCvs.getBoundingClientRect();
     var x = t.clientX - r.left;
@@ -311,7 +320,7 @@ function onMove(e) {
     var my = (lastY + y) / 2;
 
     drawCtx.beginPath();
-    drawCtx.moveTo(lastX, lastY);
+    drawCtx.moveTo(prevMidX, prevMidY);
     drawCtx.quadraticCurveTo(lastX, lastY, mx, my);
 
     if (currentMode === 'erase') {
@@ -326,6 +335,7 @@ function onMove(e) {
     drawCtx.lineJoin = 'round';
     drawCtx.stroke();
 
+    prevMidX = mx; prevMidY = my;
     lastX = x; lastY = y;
     e.preventDefault(); return;
   }
@@ -370,6 +380,13 @@ document.addEventListener('mousemove', function(e) {
 document.addEventListener('mouseup', function(e) {
   mouseDown = false; onEnd(e);
 }, false);
+
+/* ── Alert toggle ── */
+function toggleAlert(checked) {
+  if (alexaClient && alexaClient.skill && alexaClient.skill.sendMessage) {
+    alexaClient.skill.sendMessage({ type: 'setAlert', value: checked });
+  }
+}
 
 /* Add a first note automatically */
 addNote();
