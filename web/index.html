@@ -28,10 +28,11 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
   border:2px solid rgba(255,255,255,0.25);margin:0 2px;
   cursor:pointer;display:inline-block;
 }
-.pdot.sel{border-color:#fff}
-.sz-btn{padding:5px 8px;margin:0 2px;border:none;border-radius:4px;color:#ccc;font-size:12px;cursor:pointer;background:#2a2a4a}
-.alert-wrap{margin-left:auto;display:flex;align-items:center;color:#fff;font-size:13px;cursor:pointer}
-.alert-wrap input{margin-right:5px;width:16px;height:16px;cursor:pointer}
+.pdot.sel{border-color:#fff;box-shadow:0 0 6px rgba(255,255,255,0.6)}
+.sz-btn{padding:5px 8px;margin:0 2px;border:2px solid transparent;border-radius:4px;color:#ccc;font-size:12px;cursor:pointer;background:#2a2a4a}
+.sz-btn.sel{border-color:#fff;color:#fff;background:#0078D7}
+.alert-wrap{margin-left:auto;display:flex;align-items:center;color:#fff;font-size:16px;cursor:pointer;gap:4px}
+.alert-wrap input{margin-right:4px;width:20px;height:20px;cursor:pointer}
 
 #workspace{position:absolute;top:54px;left:0;right:0;bottom:0;overflow:hidden}
 
@@ -89,10 +90,10 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
   <span class="pdot" data-pc="#f39c12" style="background:#f39c12" onclick="pickPen(this)"></span>
   <span class="pdot" data-pc="#ffffff" style="background:#fff" onclick="pickPen(this)"></span>
   <div class="sep"></div>
-  <button class="sz-btn" onclick="penSize=2">Thin</button>
-  <button class="sz-btn" onclick="penSize=5">Med</button>
-  <button class="sz-btn" onclick="penSize=10">Thick</button>
-  <label class="alert-wrap"><input type="checkbox" id="alertChk" onchange="toggleAlert(this.checked)"> ALERT</label>
+  <button class="sz-btn" id="sz-thin" onclick="pickSize(2,this)">Thin</button>
+  <button class="sz-btn sel" id="sz-med" onclick="pickSize(5,this)">Med</button>
+  <button class="sz-btn" id="sz-thick" onclick="pickSize(10,this)">Thick</button>
+  <label class="alert-wrap"><input type="checkbox" id="alertChk" onchange="toggleAlert(this.checked)"> ALERT 🔔</label>
 </div>
 
 <div id="workspace"></div>
@@ -163,6 +164,14 @@ function pickPen(el) {
   }
 }
 
+function pickSize(sz, el) {
+  penSize = sz;
+  var btns = document.querySelectorAll('#toolbar .sz-btn');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].className = btns[i] === el ? 'sz-btn sel' : 'sz-btn';
+  }
+}
+
 /* ══════════════════════════════════════════════ */
 /* ── Note creation                           ── */
 /* ══════════════════════════════════════════════ */
@@ -210,7 +219,6 @@ function addNote(data) {
   /* Textarea */
   var ta = document.createElement('textarea');
   ta.className = 'note-text';
-  ta.placeholder = 'Tap to type...';
   if (data && data.text) ta.value = data.text;
   ta.addEventListener('input', function() { scheduleSave(); }, false);
   n.appendChild(ta);
