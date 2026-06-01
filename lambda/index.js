@@ -256,7 +256,7 @@ function startWebApp(handlerInput) {
                 prefs: result.prefs
             },
             request: {
-                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=9',
+                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=10',
                 method: 'GET'
             },
             configuration: {
@@ -308,7 +308,9 @@ var HtmlMessageHandler = {
         if (msg.type === 'saveNotes') {
             var userId = getUserId(handlerInput);
             var notes = msg.notes || [];
-            return saveNotesToS3(userId, notes).then(function() {
+            var savePromises = [saveNotesToS3(userId, notes)];
+            if (msg.prefs) savePromises.push(savePrefsToS3(userId, msg.prefs));
+            return Promise.all(savePromises).then(function() {
                 return handlerInput.responseBuilder
                     .addDirective({
                         type: 'Alexa.Presentation.HTML.HandleMessage',
