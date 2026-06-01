@@ -253,7 +253,7 @@ function scheduleSave() {
   saveTimer = setTimeout(function() { sendNotesToLambda(); }, 800);
 }
 
-/* ── Canvas compression (full resolution, quality reduction only) ── */
+/* ── Canvas compression (full resolution, best quality that fits) ── */
 function compressCanvas(canvasEl, bgColor) {
   var w = canvasEl.width, h = canvasEl.height;
   var tmp = document.createElement('canvas');
@@ -262,18 +262,18 @@ function compressCanvas(canvasEl, bgColor) {
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(canvasEl, 0, 0);
-  /* Try decreasing quality at full resolution */
-  var qualities = [0.5, 0.4, 0.3, 0.2, 0.15, 0.1, 0.05];
+  /* Try decreasing quality at full resolution (fine steps for best result) */
+  var qualities = [0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.2, 0.15, 0.1];
   for (var q = 0; q < qualities.length; q++) {
     var data = tmp.toDataURL('image/jpeg', qualities[q]);
-    if (data.length < 14000) return data;
+    if (data.length < 15500) return data;
   }
   /* Last resort: half resolution at lowest quality */
   var half = document.createElement('canvas');
   half.width = Math.round(w / 2); half.height = Math.round(h / 2);
   var hc = half.getContext('2d');
   hc.drawImage(tmp, 0, 0, half.width, half.height);
-  return half.toDataURL('image/jpeg', 0.05);
+  return half.toDataURL('image/jpeg', 0.1);
 }
 
 /* ── Debounced canvas save (per note, 2s delay) ── */
