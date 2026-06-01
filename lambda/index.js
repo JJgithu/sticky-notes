@@ -308,9 +308,13 @@ var HtmlMessageHandler = {
         if (msg.type === 'saveNotes') {
             var userId = getUserId(handlerInput);
             var notes = msg.notes || [];
-            var savePromises = [saveNotesToS3(userId, notes)];
-            if (msg.prefs) savePromises.push(savePrefsToS3(userId, msg.prefs));
-            return Promise.all(savePromises).then(function() {
+            /* Save prefs independently — never let prefs failure break note save */
+            if (msg.prefs) {
+                savePrefsToS3(userId, msg.prefs).catch(function(err) {
+                    console.log('Prefs save error (non-blocking): ' + err.message);
+                });
+            }
+            return saveNotesToS3(userId, notes).then(function() {
                 return handlerInput.responseBuilder
                     .addDirective({
                         type: 'Alexa.Presentation.HTML.HandleMessage',
