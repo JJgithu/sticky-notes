@@ -119,6 +119,33 @@ function loadCanvasData(userId, notes) {
     });
 }
 
+// ── User preferences persistence ──
+function savePrefsToS3(userId, prefs) {
+    if (!S3_BUCKET) return Promise.resolve();
+    return s3.putObject({
+        Bucket: S3_BUCKET,
+        Key: 'prefs/' + safeUserId(userId) + '.json',
+        Body: JSON.stringify(prefs),
+        ContentType: 'application/json'
+    }).promise().then(function() {
+        console.log('Prefs saved');
+    }).catch(function(err) {
+        console.log('Prefs save error: ' + err.message);
+    });
+}
+
+function loadPrefsFromS3(userId) {
+    if (!S3_BUCKET) return Promise.resolve(null);
+    return s3.getObject({
+        Bucket: S3_BUCKET,
+        Key: 'prefs/' + safeUserId(userId) + '.json'
+    }).promise().then(function(data) {
+        return JSON.parse(data.Body.toString());
+    }).catch(function() {
+        return null;
+    });
+}
+
 // ══════════════════════════════════════════════
 // ── LWA Token for DataStore ──
 // ══════════════════════════════════════════════
@@ -216,15 +243,20 @@ function startWebApp(handlerInput) {
     return loadNotesFromS3(userId).then(function(savedNotes) {
         return loadCanvasData(userId, savedNotes);
     }).then(function(notesWithCanvas) {
+        return loadPrefsFromS3(userId).then(function(prefs) {
+            return { notes: notesWithCanvas, prefs: prefs };
+        });
+    }).then(function(result) {
         var startDirective = {
             type: 'Alexa.Presentation.HTML.Start',
             data: {
                 appName: 'Quick Stickies',
                 alertOn: alertState,
-                notes: notesWithCanvas
+                notes: result.notes,
+                prefs: result.prefs
             },
             request: {
-                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=8',
+                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=9',
                 method: 'GET'
             },
             configuration: {
@@ -287,6 +319,46 @@ var HtmlMessageHandler = {
             });
         }
 
+        // ── Save canvas chunk ──
+        if (msg.type === 'saveCanvasChunk') {
+            var userId = getUserId(handlerInput);
+            var safe = safeUserId(userId);
+            var chunkKey = 'canvas_chunks/' + safe + '/' + msg.noteId + '_c' + msg.index;
+            return s3.putObject({
+                Bucket: S3_BUCKET,
+                Key: chunkKey,
+                Body: msg.data,
+                ContentType: 'text/plain'
+            }).promise().then(function() {
+                console.log('Chunk saved: ' + msg.noteId + ' ' + msg.index + '/' + msg.total);
+                if (msg.index === msg.total - 1) {
+                    var readPromises = [];
+                    for (var i = 0; i < msg.total; i++) {
+                        readPromises.push(s3.getObject({
+                            Bucket: S3_BUCKET,
+                            Key: 'canvas_chunks/' + safe + '/' + msg.noteId + '_c' + i
+                        }).promise());
+                    }
+                    return Promise.all(readPromises).then(function(results) {
+                        var combined = '';
+                        for (var j = 0; j < results.length; j++) {
+                            combined += results[j].Body.toString();
+                        }
+                        console.log('Combined ' + msg.total + ' chunks: ' + combined.length + ' chars');
+                        return saveCanvasToS3(userId, msg.noteId, combined);
+                    });
+                }
+            }).then(function() {
+                return handlerInput.responseBuilder
+                    .addDirective({
+                        type: 'Alexa.Presentation.HTML.HandleMessage',
+                        message: { type: 'chunkSaved', noteId: msg.noteId, index: msg.index }
+                    })
+                    .withShouldEndSession(undefined)
+                    .getResponse();
+            });
+        }
+
         // ── Save canvas drawing ──
         if (msg.type === 'saveCanvas') {
             var userId = getUserId(handlerInput);
@@ -295,6 +367,20 @@ var HtmlMessageHandler = {
                     .addDirective({
                         type: 'Alexa.Presentation.HTML.HandleMessage',
                         message: { type: 'canvasSaved', noteId: msg.noteId }
+                    })
+                    .withShouldEndSession(undefined)
+                    .getResponse();
+            });
+        }
+
+        // ── Save preferences ──
+        if (msg.type === 'savePrefs') {
+            var userId = getUserId(handlerInput);
+            return savePrefsToS3(userId, msg.prefs || {}).then(function() {
+                return handlerInput.responseBuilder
+                    .addDirective({
+                        type: 'Alexa.Presentation.HTML.HandleMessage',
+                        message: { type: 'prefsSaved' }
                     })
                     .withShouldEndSession(undefined)
                     .getResponse();

@@ -31,12 +31,17 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 .pdot.sel{border-color:#fff;box-shadow:0 0 6px rgba(255,255,255,0.6)}
 .sz-btn{padding:5px 8px;margin:0 2px;border:2px solid transparent;border-radius:4px;color:#ccc;font-size:12px;cursor:pointer;background:#2a2a4a}
 .sz-btn.sel{border-color:#fff;color:#fff;background:#0078D7}
+.fs-btn{padding:5px 6px;margin:0 1px;border:2px solid transparent;border-radius:4px;color:#ccc;font-size:12px;cursor:pointer;background:#2a2a4a}
+.fs-btn.sel{border-color:#fff;color:#fff;background:#0078D7}
+.undo-btn{padding:4px 8px;margin:0 2px;border:none;border-radius:4px;color:#ccc;font-size:18px;cursor:pointer;background:#2a2a4a}
+.undo-btn:active{background:#0078D7}
 .alert-wrap{margin-left:auto;display:flex;align-items:center;color:#fff;font-size:16px;cursor:pointer;gap:4px}
 .alert-wrap input{margin-right:4px;width:20px;height:20px;cursor:pointer}
 
 #workspace{position:absolute;top:54px;left:0;right:0;bottom:0;overflow:hidden}
 
-.note{position:absolute;border-radius:10px;overflow:visible;box-shadow:0 4px 16px rgba(0,0,0,0.5)}
+.note{position:absolute;border-radius:10px;overflow:visible;box-shadow:0 4px 16px rgba(0,0,0,0.5);transition:box-shadow 0.15s}
+.note.selected{box-shadow:0 0 0 3px #0078D7, 0 0 18px rgba(0,120,215,0.4), 0 4px 16px rgba(0,0,0,0.5)}
 .note-hdr{
   height:34px;display:flex;align-items:center;padding:0 6px;
   cursor:move;background:rgba(0,0,0,0.06);border-radius:10px 10px 0 0;
@@ -82,6 +87,8 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
   <button class="tbtn mode-btn" id="btn-type" onclick="setMode('type')">Type</button>
   <button class="tbtn mode-btn act" id="btn-draw" onclick="setMode('draw')">Draw</button>
   <button class="tbtn mode-btn" id="btn-erase" onclick="setMode('erase')">Erase</button>
+  <button class="undo-btn" onclick="undoAction()" title="Undo">↩</button>
+  <button class="undo-btn" onclick="redoAction()" title="Redo">↪</button>
   <div class="sep"></div>
   <span class="pdot sel" data-pc="#000000" style="background:#000" onclick="pickPen(this)"></span>
   <span class="pdot" data-pc="#e74c3c" style="background:#e74c3c" onclick="pickPen(this)"></span>
@@ -93,6 +100,10 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
   <button class="sz-btn" id="sz-thin" onclick="pickSize(2,this)">Thin</button>
   <button class="sz-btn sel" id="sz-med" onclick="pickSize(5,this)">Med</button>
   <button class="sz-btn" id="sz-thick" onclick="pickSize(10,this)">Thick</button>
+  <div class="sep"></div>
+  <button class="fs-btn" id="fs-s" onclick="pickFontSize(14,this)">S</button>
+  <button class="fs-btn sel" id="fs-m" onclick="pickFontSize(18,this)">M</button>
+  <button class="fs-btn" id="fs-l" onclick="pickFontSize(24,this)">L</button>
   <label class="alert-wrap"><input type="checkbox" id="alertChk" onchange="toggleAlert(this.checked)"> ALERT 🔔</label>
 </div>
 
@@ -118,7 +129,14 @@ var zIdx = 100;
 var currentMode = 'draw';   /* Draw mode is default */
 var penColor = '#000000';
 var penSize = 3;
+var currentFontSize = 18;
 var notesRestoredFromServer = false;
+var selectedNote = null;
+
+/* Undo/redo stacks (per note, keyed by noteId) */
+var undoStacks = {};
+var redoStacks = {};
+var MAX_UNDO = 20;
 
 var NOTE_COLORS = ['#FFF2AB','#FFB3BA','#BAFFC9','#BAE1FF','#E0BBE4'];
 
@@ -162,6 +180,7 @@ function pickPen(el) {
   for (var i = 0; i < dots.length; i++) {
     dots[i].className = dots[i] === el ? 'pdot sel' : 'pdot';
   }
+  savePrefs();
 }
 
 function pickSize(sz, el) {
@@ -170,6 +189,76 @@ function pickSize(sz, el) {
   for (var i = 0; i < btns.length; i++) {
     btns[i].className = btns[i] === el ? 'sz-btn sel' : 'sz-btn';
   }
+  savePrefs();
+}
+
+function pickFontSize(sz, el) {
+  currentFontSize = sz;
+  var btns = document.querySelectorAll('#toolbar .fs-btn');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].className = btns[i] === el ? 'fs-btn sel' : 'fs-btn';
+  }
+  if (selectedNote) {
+    var ta = selectedNote.querySelector('.note-text');
+    if (ta) ta.style.fontSize = sz + 'px';
+    selectedNote.setAttribute('data-fontsize', sz);
+    scheduleSave();
+  }
+  savePrefs();
+}
+
+/* ── Selected note tracking ── */
+function selectNote(note) {
+  if (selectedNote) selectedNote.className = selectedNote.className.replace(' selected', '');
+  selectedNote = note;
+  if (note && note.className.indexOf('selected') === -1) note.className += ' selected';
+}
+
+/* ── Undo / Redo ── */
+function saveUndoState(note) {
+  var nId = note.getAttribute('data-id');
+  var cvs = note.querySelector('.note-canvas');
+  if (!cvs || !nId) return;
+  if (!undoStacks[nId]) undoStacks[nId] = [];
+  var ctx = cvs.getContext('2d');
+  undoStacks[nId].push(ctx.getImageData(0, 0, cvs.width, cvs.height));
+  if (undoStacks[nId].length > MAX_UNDO) undoStacks[nId].shift();
+  redoStacks[nId] = [];
+}
+
+function undoAction() {
+  if (!selectedNote) return;
+  var nId = selectedNote.getAttribute('data-id');
+  var cvs = selectedNote.querySelector('.note-canvas');
+  if (!cvs || !nId || !undoStacks[nId] || !undoStacks[nId].length) return;
+  var ctx = cvs.getContext('2d');
+  if (!redoStacks[nId]) redoStacks[nId] = [];
+  redoStacks[nId].push(ctx.getImageData(0, 0, cvs.width, cvs.height));
+  ctx.clearRect(0, 0, cvs.width, cvs.height);
+  ctx.putImageData(undoStacks[nId].pop(), 0, 0);
+  scheduleCanvasSave(selectedNote, cvs);
+}
+
+function redoAction() {
+  if (!selectedNote) return;
+  var nId = selectedNote.getAttribute('data-id');
+  var cvs = selectedNote.querySelector('.note-canvas');
+  if (!cvs || !nId || !redoStacks[nId] || !redoStacks[nId].length) return;
+  var ctx = cvs.getContext('2d');
+  if (!undoStacks[nId]) undoStacks[nId] = [];
+  undoStacks[nId].push(ctx.getImageData(0, 0, cvs.width, cvs.height));
+  ctx.clearRect(0, 0, cvs.width, cvs.height);
+  ctx.putImageData(redoStacks[nId].pop(), 0, 0);
+  scheduleCanvasSave(selectedNote, cvs);
+}
+
+/* ── Preferences persistence ── */
+function savePrefs() {
+  if (!alexaClient || !alexaClient.skill || !alexaClient.skill.sendMessage) return;
+  alexaClient.skill.sendMessage({
+    type: 'savePrefs',
+    prefs: { penColor: penColor, penSize: penSize, fontSize: currentFontSize }
+  });
 }
 
 /* ══════════════════════════════════════════════ */
@@ -180,11 +269,12 @@ var canvasUrlMap = {};  /* unused, kept for compat */
 function addNote(data) {
   noteCount++;
   var noteId = (data && data.id) || ('n_' + Date.now() + '_' + Math.random().toString(36).substr(2,6));
-  var w = (data && data.w) || 280;
-  var h = (data && data.h) || 220;
+  var w = (data && data.w) || 420;
+  var h = (data && data.h) || 330;
   var col = (data && data.color) || NOTE_COLORS[(noteCount - 1) % NOTE_COLORS.length];
-  var x = (data && data.x !== undefined) ? data.x : 20 + ((noteCount - 1) % 6) * 50;
-  var y = (data && data.y !== undefined) ? data.y : 10 + (Math.floor((noteCount - 1) / 6) % 4) * 40;
+  var x = (data && data.x !== undefined) ? data.x : 20 + ((noteCount - 1) % 4) * 60;
+  var y = (data && data.y !== undefined) ? data.y : 10 + (Math.floor((noteCount - 1) / 4) % 3) * 50;
+  var fontSize = (data && data.fontSize) || currentFontSize;
 
   var n = document.createElement('div');
   n.className = 'note' + (currentMode !== 'type' ? ' draw-active' : '');
@@ -219,9 +309,11 @@ function addNote(data) {
   /* Textarea */
   var ta = document.createElement('textarea');
   ta.className = 'note-text';
+  ta.style.fontSize = fontSize + 'px';
   if (data && data.text) ta.value = data.text;
   ta.addEventListener('input', function() { scheduleSave(); }, false);
   n.appendChild(ta);
+  n.setAttribute('data-fontsize', fontSize);
 
   /* Resize handle */
   var rh = document.createElement('div');
@@ -229,6 +321,7 @@ function addNote(data) {
   n.appendChild(rh);
 
   workspace.appendChild(n);
+  selectNote(n);
 
   /* Restore canvas drawing from base64 data */
   if (data && data.canvasData) {
@@ -253,7 +346,7 @@ function scheduleSave() {
   saveTimer = setTimeout(function() { sendNotesToLambda(); }, 800);
 }
 
-/* ── Canvas compression (full resolution, best quality that fits) ── */
+/* ── Canvas compression (always quality 0.7 — chunking handles large data) ── */
 function compressCanvas(canvasEl, bgColor) {
   var w = canvasEl.width, h = canvasEl.height;
   var tmp = document.createElement('canvas');
@@ -262,21 +355,10 @@ function compressCanvas(canvasEl, bgColor) {
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(canvasEl, 0, 0);
-  /* Try decreasing quality at full resolution (fine steps for best result) */
-  var qualities = [0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.2, 0.15, 0.1];
-  for (var q = 0; q < qualities.length; q++) {
-    var data = tmp.toDataURL('image/jpeg', qualities[q]);
-    if (data.length < 15500) return data;
-  }
-  /* Last resort: half resolution at lowest quality */
-  var half = document.createElement('canvas');
-  half.width = Math.round(w / 2); half.height = Math.round(h / 2);
-  var hc = half.getContext('2d');
-  hc.drawImage(tmp, 0, 0, half.width, half.height);
-  return half.toDataURL('image/jpeg', 0.1);
+  return tmp.toDataURL('image/jpeg', 0.7);
 }
 
-/* ── Debounced canvas save (per note, 2s delay) ── */
+/* ── Debounced canvas save (per note, 2s delay, chunked if large) ── */
 var canvasTimers = {};
 
 function scheduleCanvasSave(noteEl, canvasEl) {
@@ -288,11 +370,23 @@ function scheduleCanvasSave(noteEl, canvasEl) {
     if (!alexaClient || !alexaClient.skill || !alexaClient.skill.sendMessage) return;
     try {
       var bgColor = noteEl.getAttribute('data-color') || '#FFF2AB';
-      var canvasData = compressCanvas(canvasEl, bgColor);
-      alexaClient.skill.sendMessage({ type: 'saveCanvas', noteId: nId, data: canvasData });
-    } catch(e) {
-      /* canvas might be tainted or unavailable */
-    }
+      var fullData = compressCanvas(canvasEl, bgColor);
+      var CHUNK_SIZE = 14000;
+      if (fullData.length <= 15500) {
+        alexaClient.skill.sendMessage({ type: 'saveCanvas', noteId: nId, data: fullData });
+      } else {
+        var totalChunks = Math.ceil(fullData.length / CHUNK_SIZE);
+        for (var i = 0; i < totalChunks; i++) {
+          alexaClient.skill.sendMessage({
+            type: 'saveCanvasChunk',
+            noteId: nId,
+            index: i,
+            total: totalChunks,
+            data: fullData.substr(i * CHUNK_SIZE, CHUNK_SIZE)
+          });
+        }
+      }
+    } catch(e) {}
   }, 2000);
 }
 
@@ -313,7 +407,8 @@ function sendNotesToLambda() {
       w: n.offsetWidth,
       h: n.offsetHeight,
       color: n.getAttribute('data-color') || '#FFF2AB',
-      text: ta ? ta.value : ''
+      text: ta ? ta.value : '',
+      fontSize: parseInt(n.getAttribute('data-fontsize')) || 18
     });
   }
   setDbg('Saving ' + arr.length + ' notes...');
@@ -330,6 +425,7 @@ function onStart(e) {
   var note = findUp(el, 'note');
   if (!note) return;
   note.style.zIndex = zIdx++;
+  selectNote(note);
 
   if (hasClass(el, 'note-del')) {
     note.parentNode.removeChild(note);
@@ -356,6 +452,7 @@ function onStart(e) {
     e.preventDefault(); return;
   }
   if ((currentMode === 'draw' || currentMode === 'erase') && el.tagName === 'CANVAS') {
+    saveUndoState(note);
     drawCvs = el; drawCtx = el.getContext('2d'); drawing = true;
     var r = el.getBoundingClientRect();
     lastX = t.clientX - r.left; lastY = t.clientY - r.top;
@@ -459,6 +556,39 @@ if (typeof Alexa !== 'undefined' && Alexa.create) {
       if (initData && initData.alertOn) {
         var chk = document.getElementById('alertChk');
         if (chk) chk.checked = true;
+      }
+
+      /* Restore user preferences */
+      if (initData && initData.prefs) {
+        if (initData.prefs.penColor) {
+          penColor = initData.prefs.penColor;
+          var dots = document.querySelectorAll('#toolbar .pdot');
+          for (var d = 0; d < dots.length; d++) {
+            dots[d].className = dots[d].getAttribute('data-pc') === penColor ? 'pdot sel' : 'pdot';
+          }
+        }
+        if (initData.prefs.penSize) {
+          penSize = initData.prefs.penSize;
+          var szMap = {'2':'sz-thin','5':'sz-med','10':'sz-thick'};
+          var activeId = szMap[penSize + ''];
+          if (activeId) {
+            var szBtns = document.querySelectorAll('#toolbar .sz-btn');
+            for (var s = 0; s < szBtns.length; s++) {
+              szBtns[s].className = szBtns[s].id === activeId ? 'sz-btn sel' : 'sz-btn';
+            }
+          }
+        }
+        if (initData.prefs.fontSize) {
+          currentFontSize = initData.prefs.fontSize;
+          var fsMap = {'14':'fs-s','18':'fs-m','24':'fs-l'};
+          var activeFsId = fsMap[currentFontSize + ''];
+          if (activeFsId) {
+            var fsBtns = document.querySelectorAll('#toolbar .fs-btn');
+            for (var f = 0; f < fsBtns.length; f++) {
+              fsBtns[f].className = fsBtns[f].id === activeFsId ? 'fs-btn sel' : 'fs-btn';
+            }
+          }
+        }
       }
 
       /* Restore saved notes from Lambda/S3 */
