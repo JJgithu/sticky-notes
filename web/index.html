@@ -392,25 +392,29 @@ function scheduleSave() {
   saveTimer = setTimeout(function() { sendNotesToLambda(); }, 800);
 }
 
-/* ── Canvas compression (scale to max 280px wide, then JPEG) ── */
+/* ── Canvas compression (full resolution, best quality that fits 14KB) ── */
 function compressCanvas(canvasEl, bgColor) {
   var w = canvasEl.width, h = canvasEl.height;
-  /* Always scale down to max 280px wide for reliable size */
-  var maxW = 280;
-  var scale = (w > maxW) ? maxW / w : 1;
-  var sw = Math.round(w * scale), sh = Math.round(h * scale);
   var tmp = document.createElement('canvas');
-  tmp.width = sw; tmp.height = sh;
+  tmp.width = w; tmp.height = h;
   var ctx = tmp.getContext('2d');
   ctx.fillStyle = bgColor;
-  ctx.fillRect(0, 0, sw, sh);
-  ctx.drawImage(canvasEl, 0, 0, sw, sh);
-  var qualities = [0.6, 0.5, 0.4, 0.3, 0.2, 0.15, 0.1];
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(canvasEl, 0, 0);
+  /* Try full resolution with decreasing quality */
+  var qualities = [0.7, 0.6, 0.55, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.2, 0.15, 0.1];
   for (var q = 0; q < qualities.length; q++) {
     var data = tmp.toDataURL('image/jpeg', qualities[q]);
     if (data.length < 14000) return data;
   }
-  return tmp.toDataURL('image/jpeg', 0.05);
+  /* Fallback: 75% resolution */
+  var sm = document.createElement('canvas');
+  sm.width = Math.round(w * 0.75); sm.height = Math.round(h * 0.75);
+  var sc = sm.getContext('2d');
+  sc.fillStyle = bgColor;
+  sc.fillRect(0, 0, sm.width, sm.height);
+  sc.drawImage(canvasEl, 0, 0, sm.width, sm.height);
+  return sm.toDataURL('image/jpeg', 0.3);
 }
 
 /* ── Debounced canvas save (per note, queued) ── */
