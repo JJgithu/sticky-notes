@@ -36,6 +36,9 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 .alert-wrap{margin-left:auto;display:flex;align-items:center;color:#fff;font-size:16px;cursor:pointer;gap:4px}
 .alert-wrap input{margin-right:4px;width:20px;height:20px;cursor:pointer}
 .lbl{color:#999;font-size:11px;margin-right:4px}
+.save-dot{width:10px;height:10px;border-radius:5px;background:#555;margin-left:8px;transition:background 0.3s}
+.save-dot.ok{background:#2ecc71}
+.save-dot.busy{background:#f39c12}
 
 #workspace{position:absolute;top:54px;left:0;right:0;bottom:0;overflow:hidden}
 
@@ -107,6 +110,7 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
   <button class="undo-btn" onclick="doUndo()" title="Undo">↩</button>
   <button class="undo-btn" onclick="doRedo()" title="Redo">↪</button>
   <label class="alert-wrap"><input type="checkbox" id="alertChk" onchange="toggleAlert(this.checked)"> ALERT 🔔</label>
+  <span class="save-dot" id="saveDot" title="Save status"></span>
 </div>
 
 <div id="workspace"></div>
@@ -368,10 +372,16 @@ function queueMsg(msg, key) {
 function drainQueue() {
   if (msgSending || msgQueue.length === 0) return;
   msgSending = true;
+  var dot = document.getElementById('saveDot');
+  if (dot) dot.className = 'save-dot busy';
   var item = msgQueue.shift();
   try { alexaClient.skill.sendMessage(item.msg); } catch(e) {}
-  /* Wait 1.5s before sending next message */
-  setTimeout(function() { msgSending = false; drainQueue(); }, 1500);
+  /* Wait 2s before sending next message */
+  setTimeout(function() {
+    msgSending = false;
+    if (msgQueue.length === 0 && dot) dot.className = 'save-dot ok';
+    drainQueue();
+  }, 2000);
 }
 
 /* ── Save notes to Lambda → S3 (debounced) ── */
@@ -382,25 +392,25 @@ function scheduleSave() {
   saveTimer = setTimeout(function() { sendNotesToLambda(); }, 800);
 }
 
-/* ── Canvas compression (full resolution, best quality that fits) ── */
+/* ── Canvas compression (scale to max 280px wide, then JPEG) ── */
 function compressCanvas(canvasEl, bgColor) {
   var w = canvasEl.width, h = canvasEl.height;
+  /* Always scale down to max 280px wide for reliable size */
+  var maxW = 280;
+  var scale = (w > maxW) ? maxW / w : 1;
+  var sw = Math.round(w * scale), sh = Math.round(h * scale);
   var tmp = document.createElement('canvas');
-  tmp.width = w; tmp.height = h;
+  tmp.width = sw; tmp.height = sh;
   var ctx = tmp.getContext('2d');
   ctx.fillStyle = bgColor;
-  ctx.fillRect(0, 0, w, h);
-  ctx.drawImage(canvasEl, 0, 0);
-  var qualities = [0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.2, 0.15, 0.1];
+  ctx.fillRect(0, 0, sw, sh);
+  ctx.drawImage(canvasEl, 0, 0, sw, sh);
+  var qualities = [0.6, 0.5, 0.4, 0.3, 0.2, 0.15, 0.1];
   for (var q = 0; q < qualities.length; q++) {
     var data = tmp.toDataURL('image/jpeg', qualities[q]);
-    if (data.length < 15500) return data;
+    if (data.length < 14000) return data;
   }
-  var half = document.createElement('canvas');
-  half.width = Math.round(w / 2); half.height = Math.round(h / 2);
-  var hc = half.getContext('2d');
-  hc.drawImage(tmp, 0, 0, half.width, half.height);
-  return half.toDataURL('image/jpeg', 0.1);
+  return tmp.toDataURL('image/jpeg', 0.05);
 }
 
 /* ── Debounced canvas save (per note, queued) ── */
