@@ -640,13 +640,37 @@ if (typeof Alexa !== 'undefined' && Alexa.create) {
           addNote(initData.notes[i]);
         }
         notesRestoredFromServer = true;
-      } else {
-        setDbg('No saved notes');
+
+        /* Request canvas data for each note (loaded individually to avoid size limit) */
+        var noteEls = workspace.querySelectorAll('.note');
+        for (var j = 0; j < noteEls.length; j++) {
+          var nId = noteEls[j].getAttribute('data-id');
+          if (nId) {
+            queueMsg({ type: 'loadCanvas', noteId: nId }, 'loadcvs_' + nId);
+          }
+        }
       }
 
       /* Listen for Lambda responses */
       alexaClient.skill.onMessage(function(msg) {
-        /* responses handled silently */
+        if (msg.type === 'canvasLoaded' && msg.noteId && msg.data) {
+          /* Find the note and draw the canvas */
+          var notes = workspace.querySelectorAll('.note');
+          for (var k = 0; k < notes.length; k++) {
+            if (notes[k].getAttribute('data-id') === msg.noteId) {
+              var cvs = notes[k].querySelector('.note-canvas');
+              if (cvs) {
+                var img = new Image();
+                var targetCvs = cvs;
+                img.onload = function() {
+                  targetCvs.getContext('2d').drawImage(img, 0, 0, targetCvs.width, targetCvs.height);
+                };
+                img.src = msg.data;
+              }
+              break;
+            }
+          }
+        }
       });
     })
     .catch(function(err) {

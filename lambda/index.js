@@ -241,10 +241,8 @@ function startWebApp(handlerInput) {
     var userId = getUserId(handlerInput);
 
     return loadNotesFromS3(userId).then(function(savedNotes) {
-        return loadCanvasData(userId, savedNotes);
-    }).then(function(notesWithCanvas) {
         return loadPrefsFromS3(userId).then(function(prefs) {
-            return { notes: notesWithCanvas, prefs: prefs };
+            return { notes: savedNotes, prefs: prefs };
         });
     }).then(function(result) {
         var startDirective = {
@@ -256,7 +254,7 @@ function startWebApp(handlerInput) {
                 prefs: result.prefs
             },
             request: {
-                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=10',
+                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=11',
                 method: 'GET'
             },
             configuration: {
@@ -377,6 +375,37 @@ var HtmlMessageHandler = {
                     .withShouldEndSession(undefined)
                     .getResponse();
             });
+        }
+
+        // ── Load single canvas (called per note after startup) ──
+        if (msg.type === 'loadCanvas') {
+            var userId = getUserId(handlerInput);
+            var safe = safeUserId(userId);
+            var keyBase = 'canvas/' + safe + '/' + msg.noteId;
+            return s3.getObject({ Bucket: S3_BUCKET, Key: keyBase }).promise()
+                .catch(function() {
+                    return s3.getObject({ Bucket: S3_BUCKET, Key: keyBase + '.png' }).promise();
+                })
+                .then(function(data) {
+                    var ct = data.ContentType || 'image/jpeg';
+                    var canvasData = 'data:' + ct + ';base64,' + data.Body.toString('base64');
+                    return handlerInput.responseBuilder
+                        .addDirective({
+                            type: 'Alexa.Presentation.HTML.HandleMessage',
+                            message: { type: 'canvasLoaded', noteId: msg.noteId, data: canvasData }
+                        })
+                        .withShouldEndSession(undefined)
+                        .getResponse();
+                })
+                .catch(function() {
+                    return handlerInput.responseBuilder
+                        .addDirective({
+                            type: 'Alexa.Presentation.HTML.HandleMessage',
+                            message: { type: 'canvasLoaded', noteId: msg.noteId, data: null }
+                        })
+                        .withShouldEndSession(undefined)
+                        .getResponse();
+                });
         }
 
         // ── Save preferences ──
