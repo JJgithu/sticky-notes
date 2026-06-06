@@ -254,7 +254,7 @@ function startWebApp(handlerInput) {
                 prefs: result.prefs
             },
             request: {
-                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=11',
+                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=12',
                 method: 'GET'
             },
             configuration: {
@@ -377,7 +377,7 @@ var HtmlMessageHandler = {
             });
         }
 
-        // ── Load single canvas (called per note after startup) ──
+        // ── Load single canvas (chunked if too large) ──
         if (msg.type === 'loadCanvas') {
             var userId = getUserId(handlerInput);
             var safe = safeUserId(userId);
@@ -387,24 +387,58 @@ var HtmlMessageHandler = {
                     return s3.getObject({ Bucket: S3_BUCKET, Key: keyBase + '.png' }).promise();
                 })
                 .then(function(data) {
-                    var ct = data.ContentType || 'image/jpeg';
-                    var canvasData = 'data:' + ct + ';base64,' + data.Body.toString('base64');
-                    return handlerInput.responseBuilder
-                        .addDirective({
+                    var ct = data.ContentType || 'image/png';
+                    var fullData = 'data:' + ct + ';base64,' + data.Body.toString('base64');
+                    var chunkSize = 14000;
+                    var totalChunks = Math.ceil(fullData.length / chunkSize);
+
+                    if (totalChunks <= 1) {
+                        return handlerInput.responseBuilder.addDirective({
                             type: 'Alexa.Presentation.HTML.HandleMessage',
-                            message: { type: 'canvasLoaded', noteId: msg.noteId, data: canvasData }
-                        })
-                        .withShouldEndSession(undefined)
-                        .getResponse();
+                            message: { type: 'canvasLoaded', noteId: msg.noteId, data: fullData }
+                        }).withShouldEndSession(undefined).getResponse();
+                    } else {
+                        var chunk = fullData.substr(0, chunkSize);
+                        return handlerInput.responseBuilder.addDirective({
+                            type: 'Alexa.Presentation.HTML.HandleMessage',
+                            message: { type: 'canvasChunk', noteId: msg.noteId, chunkIndex: 0, totalChunks: totalChunks, data: chunk }
+                        }).withShouldEndSession(undefined).getResponse();
+                    }
                 })
                 .catch(function() {
-                    return handlerInput.responseBuilder
-                        .addDirective({
-                            type: 'Alexa.Presentation.HTML.HandleMessage',
-                            message: { type: 'canvasLoaded', noteId: msg.noteId, data: null }
-                        })
-                        .withShouldEndSession(undefined)
-                        .getResponse();
+                    return handlerInput.responseBuilder.addDirective({
+                        type: 'Alexa.Presentation.HTML.HandleMessage',
+                        message: { type: 'canvasLoaded', noteId: msg.noteId, data: null }
+                    }).withShouldEndSession(undefined).getResponse();
+                });
+        }
+
+        // ── Load a specific canvas chunk ──
+        if (msg.type === 'loadCanvasChunk') {
+            var userId = getUserId(handlerInput);
+            var safe = safeUserId(userId);
+            var keyBase = 'canvas/' + safe + '/' + msg.noteId;
+            return s3.getObject({ Bucket: S3_BUCKET, Key: keyBase }).promise()
+                .catch(function() {
+                    return s3.getObject({ Bucket: S3_BUCKET, Key: keyBase + '.png' }).promise();
+                })
+                .then(function(data) {
+                    var ct = data.ContentType || 'image/png';
+                    var fullData = 'data:' + ct + ';base64,' + data.Body.toString('base64');
+                    var chunkSize = 14000;
+                    var totalChunks = Math.ceil(fullData.length / chunkSize);
+                    var start = msg.chunkIndex * chunkSize;
+                    var chunk = fullData.substr(start, chunkSize);
+                    return handlerInput.responseBuilder.addDirective({
+                        type: 'Alexa.Presentation.HTML.HandleMessage',
+                        message: { type: 'canvasChunk', noteId: msg.noteId, chunkIndex: msg.chunkIndex, totalChunks: totalChunks, data: chunk }
+                    }).withShouldEndSession(undefined).getResponse();
+                })
+                .catch(function() {
+                    return handlerInput.responseBuilder.addDirective({
+                        type: 'Alexa.Presentation.HTML.HandleMessage',
+                        message: { type: 'canvasChunk', noteId: msg.noteId, chunkIndex: msg.chunkIndex, totalChunks: 0, data: '' }
+                    }).withShouldEndSession(undefined).getResponse();
                 });
         }
 

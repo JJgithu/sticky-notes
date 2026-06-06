@@ -22,6 +22,7 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 }
 .tbtn.act{background:#0078D7}
 .tbtn-add{background:#0078D7}
+.tbtn-save{background:#27ae60;font-weight:bold}
 .sep{width:1px;height:28px;background:rgba(255,255,255,0.12);margin:0 8px}
 .pdot{
   width:22px;height:22px;border-radius:11px;
@@ -36,9 +37,21 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 .alert-wrap{margin-left:auto;display:flex;align-items:center;color:#fff;font-size:16px;cursor:pointer;gap:4px}
 .alert-wrap input{margin-right:4px;width:20px;height:20px;cursor:pointer}
 .lbl{color:#999;font-size:11px;margin-right:4px}
-.save-dot{width:10px;height:10px;border-radius:5px;background:#555;margin-left:8px;transition:background 0.3s}
-.save-dot.ok{background:#2ecc71}
-.save-dot.busy{background:#f39c12}
+
+/* Save overlay */
+#saveOverlay{
+  display:none;position:fixed;top:0;left:0;right:0;bottom:0;
+  background:rgba(0,0,0,0.7);z-index:99999;
+  justify-content:center;align-items:center;flex-direction:column;
+}
+#saveOverlay.show{display:flex}
+#saveOverlay .spinner{
+  width:48px;height:48px;border:5px solid rgba(255,255,255,0.2);
+  border-top-color:#0078D7;border-radius:50%;
+  animation:spin 0.8s linear infinite;margin-bottom:16px;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+#saveOverlay .msg{color:#fff;font-size:18px;text-align:center}
 
 #workspace{position:absolute;top:54px;left:0;right:0;bottom:0;overflow:hidden}
 
@@ -84,7 +97,8 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 
 <div id="toolbar">
   <span class="title">Quick Stickies</span>
-  <button class="tbtn tbtn-add" onclick="addNote();scheduleSave()">+ Note</button>
+  <button class="tbtn tbtn-add" onclick="addNote()">+ Note</button>
+  <button class="tbtn tbtn-save" onclick="doSave()">💾 Save</button>
   <div class="sep"></div>
   <button class="tbtn mode-btn" id="btn-type" onclick="setMode('type')">Type</button>
   <button class="tbtn mode-btn act" id="btn-draw" onclick="setMode('draw')">Draw</button>
@@ -110,7 +124,11 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
   <button class="undo-btn" onclick="doUndo()" title="Undo">↩</button>
   <button class="undo-btn" onclick="doRedo()" title="Redo">↪</button>
   <label class="alert-wrap"><input type="checkbox" id="alertChk" onchange="toggleAlert(this.checked)"> ALERT 🔔</label>
-  <span class="save-dot" id="saveDot" title="Save status"></span>
+</div>
+
+<div id="saveOverlay">
+  <div class="spinner"></div>
+  <div class="msg" id="saveMsg">Saving notes...</div>
 </div>
 
 <div id="workspace"></div>
@@ -127,12 +145,10 @@ window.onerror = function(msg, url, line) {
 
 /* ── Globals ── */
 var alexaClient = null;
-function setDbg(txt) { /* debug bar removed */ }
-
 var workspace = document.getElementById('workspace');
 var noteCount = 0;
 var zIdx = 100;
-var currentMode = 'draw';   /* Draw mode is default */
+var currentMode = 'draw';
 var penColor = '#000000';
 var penSize = 5;
 var fontSize = 18;
@@ -142,8 +158,8 @@ var notesRestoredFromServer = false;
 var NOTE_COLORS = ['#FFF2AB','#FFB3BA','#BAFFC9','#BAE1FF','#E0BBE4'];
 
 /* ── Undo/redo history per note ── */
-var undoMap = {};   /* noteId -> [dataURL, ...] */
-var redoMap = {};   /* noteId -> [dataURL, ...] */
+var undoMap = {};
+var redoMap = {};
 var MAX_UNDO = 10;
 
 /* ── Interaction state ── */
@@ -172,9 +188,7 @@ function selectNote(noteEl) {
     selectedNoteEl.className = selectedNoteEl.className.replace(' selected', '');
   }
   if (noteEl) {
-    if (noteEl.className.indexOf(' selected') === -1) {
-      noteEl.className += ' selected';
-    }
+    if (noteEl.className.indexOf(' selected') === -1) noteEl.className += ' selected';
   }
   selectedNoteEl = noteEl;
 }
@@ -215,13 +229,11 @@ function pickFontSize(sz, el) {
   for (var i = 0; i < btns.length; i++) {
     btns[i].className = btns[i] === el ? 'tool-btn sel' : 'tool-btn';
   }
-  /* Apply to selected note */
   if (selectedNoteEl) {
     var ta = selectedNoteEl.querySelector('.note-text');
     if (ta) {
       ta.style.fontSize = sz + 'px';
       selectedNoteEl.setAttribute('data-fontsize', sz);
-      scheduleSave();
     }
   }
 }
@@ -235,7 +247,7 @@ function pushUndo(noteEl) {
   try {
     undoMap[nId].push(cvs.toDataURL('image/png'));
     if (undoMap[nId].length > MAX_UNDO) undoMap[nId].shift();
-    redoMap[nId] = []; /* clear redo on new action */
+    redoMap[nId] = [];
   } catch(e) {}
 }
 
@@ -244,18 +256,13 @@ function doUndo() {
   var nId = selectedNoteEl.getAttribute('data-id');
   var cvs = selectedNoteEl.querySelector('.note-canvas');
   if (!nId || !cvs || !undoMap[nId] || undoMap[nId].length === 0) return;
-  /* Save current state to redo */
   if (!redoMap[nId]) redoMap[nId] = [];
   try { redoMap[nId].push(cvs.toDataURL('image/png')); } catch(e) {}
-  /* Pop undo and restore */
   var dataUrl = undoMap[nId].pop();
   var ctx = cvs.getContext('2d');
   ctx.clearRect(0, 0, cvs.width, cvs.height);
   var img = new Image();
-  img.onload = function() {
-    ctx.drawImage(img, 0, 0, cvs.width, cvs.height);
-    scheduleCanvasSave(selectedNoteEl, cvs);
-  };
+  img.onload = function() { ctx.drawImage(img, 0, 0, cvs.width, cvs.height); };
   img.src = dataUrl;
 }
 
@@ -264,18 +271,13 @@ function doRedo() {
   var nId = selectedNoteEl.getAttribute('data-id');
   var cvs = selectedNoteEl.querySelector('.note-canvas');
   if (!nId || !cvs || !redoMap[nId] || redoMap[nId].length === 0) return;
-  /* Save current state to undo */
   if (!undoMap[nId]) undoMap[nId] = [];
   try { undoMap[nId].push(cvs.toDataURL('image/png')); } catch(e) {}
-  /* Pop redo and restore */
   var dataUrl = redoMap[nId].pop();
   var ctx = cvs.getContext('2d');
   ctx.clearRect(0, 0, cvs.width, cvs.height);
   var img = new Image();
-  img.onload = function() {
-    ctx.drawImage(img, 0, 0, cvs.width, cvs.height);
-    scheduleCanvasSave(selectedNoteEl, cvs);
-  };
+  img.onload = function() { ctx.drawImage(img, 0, 0, cvs.width, cvs.height); };
   img.src = dataUrl;
 }
 
@@ -299,7 +301,6 @@ function addNote(data) {
   n.setAttribute('data-fontsize', fs);
   n.style.cssText = 'left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px;background-color:' + col + ';z-index:' + (zIdx++);
 
-  /* Header */
   var hdr = document.createElement('div');
   hdr.className = 'note-hdr';
   for (var c = 0; c < NOTE_COLORS.length; c++) {
@@ -315,7 +316,6 @@ function addNote(data) {
   hdr.appendChild(del);
   n.appendChild(hdr);
 
-  /* Canvas */
   var cH = h - 34;
   var cvs = document.createElement('canvas');
   cvs.className = 'note-canvas';
@@ -323,31 +323,17 @@ function addNote(data) {
   cvs.style.width = w + 'px'; cvs.style.height = cH + 'px';
   n.appendChild(cvs);
 
-  /* Textarea */
   var ta = document.createElement('textarea');
   ta.className = 'note-text';
   ta.style.fontSize = fs + 'px';
   if (data && data.text) ta.value = data.text;
-  ta.addEventListener('input', function() { scheduleSave(); }, false);
   n.appendChild(ta);
 
-  /* Resize handle */
   var rh = document.createElement('div');
   rh.className = 'resize-hdl';
   n.appendChild(rh);
 
   workspace.appendChild(n);
-
-  /* Restore canvas drawing from base64 data */
-  if (data && data.canvasData) {
-    var restoreCvs = cvs;
-    var img = new Image();
-    img.onload = function() {
-      restoreCvs.getContext('2d').drawImage(img, 0, 0, restoreCvs.width, restoreCvs.height);
-    };
-    img.src = data.canvasData;
-  }
-
   return n;
 }
 
@@ -356,10 +342,11 @@ function addNote(data) {
 /* ══════════════════════════════════════════════ */
 var msgQueue = [];
 var msgSending = false;
+var saveInProgress = false;
+var saveMsgEl = document.getElementById('saveMsg');
 
 function queueMsg(msg, key) {
   if (!alexaClient || !alexaClient.skill || !alexaClient.skill.sendMessage) return;
-  /* If key provided, replace any existing message with same key */
   if (key) {
     for (var i = 0; i < msgQueue.length; i++) {
       if (msgQueue[i].key === key) { msgQueue[i] = {key: key, msg: msg}; drainQueue(); return; }
@@ -372,69 +359,33 @@ function queueMsg(msg, key) {
 function drainQueue() {
   if (msgSending || msgQueue.length === 0) return;
   msgSending = true;
-  var dot = document.getElementById('saveDot');
-  if (dot) dot.className = 'save-dot busy';
   var item = msgQueue.shift();
   try { alexaClient.skill.sendMessage(item.msg); } catch(e) {}
-  /* Wait 2s before sending next message */
   setTimeout(function() {
     msgSending = false;
-    if (msgQueue.length === 0 && dot) dot.className = 'save-dot ok';
+    if (msgQueue.length === 0 && saveInProgress) {
+      saveInProgress = false;
+      if (saveMsgEl) saveMsgEl.textContent = 'Saved!';
+      setTimeout(function() {
+        document.getElementById('saveOverlay').className = '';
+      }, 1200);
+    }
     drainQueue();
-  }, 2000);
+  }, 1500);
 }
 
-/* ── Save notes to Lambda → S3 (debounced) ── */
-var saveTimer = null;
+/* ══════════════════════════════════════════════ */
+/* ── Manual Save (full resolution PNG chunks) ── */
+/* ══════════════════════════════════════════════ */
+var CHUNK_SIZE = 12000;
 
-function scheduleSave() {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(function() { sendNotesToLambda(); }, 800);
-}
+function doSave() {
+  if (!alexaClient || !alexaClient.skill || !alexaClient.skill.sendMessage) return;
+  saveInProgress = true;
+  if (saveMsgEl) saveMsgEl.textContent = 'Saving notes...';
+  document.getElementById('saveOverlay').className = 'show';
 
-/* ── Canvas compression (full resolution, best quality that fits 14KB) ── */
-function compressCanvas(canvasEl, bgColor) {
-  var w = canvasEl.width, h = canvasEl.height;
-  var tmp = document.createElement('canvas');
-  tmp.width = w; tmp.height = h;
-  var ctx = tmp.getContext('2d');
-  ctx.fillStyle = bgColor;
-  ctx.fillRect(0, 0, w, h);
-  ctx.drawImage(canvasEl, 0, 0);
-  /* Try full resolution with decreasing quality */
-  var qualities = [0.7, 0.6, 0.55, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.2, 0.15, 0.1];
-  for (var q = 0; q < qualities.length; q++) {
-    var data = tmp.toDataURL('image/jpeg', qualities[q]);
-    if (data.length < 14000) return data;
-  }
-  /* Fallback: 75% resolution */
-  var sm = document.createElement('canvas');
-  sm.width = Math.round(w * 0.75); sm.height = Math.round(h * 0.75);
-  var sc = sm.getContext('2d');
-  sc.fillStyle = bgColor;
-  sc.fillRect(0, 0, sm.width, sm.height);
-  sc.drawImage(canvasEl, 0, 0, sm.width, sm.height);
-  return sm.toDataURL('image/jpeg', 0.3);
-}
-
-/* ── Debounced canvas save (per note, queued) ── */
-var canvasTimers = {};
-
-function scheduleCanvasSave(noteEl, canvasEl) {
-  var nId = noteEl.getAttribute('data-id');
-  if (!nId) return;
-  if (canvasTimers[nId]) clearTimeout(canvasTimers[nId]);
-  canvasTimers[nId] = setTimeout(function() {
-    delete canvasTimers[nId];
-    try {
-      var bgColor = noteEl.getAttribute('data-color') || '#FFF2AB';
-      var canvasData = compressCanvas(canvasEl, bgColor);
-      queueMsg({ type: 'saveCanvas', noteId: nId, data: canvasData }, 'canvas_' + nId);
-    } catch(e) {}
-  }, 2000);
-}
-
-function sendNotesToLambda() {
+  /* 1. Save note metadata + prefs */
   var notes = workspace.querySelectorAll('.note');
   var arr = [];
   for (var i = 0; i < notes.length; i++) {
@@ -453,6 +404,30 @@ function sendNotesToLambda() {
   }
   var prefs = { penColor: penColor, penSize: penSize, fontSize: fontSize };
   queueMsg({ type: 'saveNotes', notes: arr, prefs: prefs }, 'notes');
+
+  /* 2. Save each canvas as PNG chunks */
+  for (var j = 0; j < notes.length; j++) {
+    var note = notes[j];
+    var cvs = note.querySelector('.note-canvas');
+    var nId = note.getAttribute('data-id');
+    if (!cvs || !nId) continue;
+
+    var dataUrl = cvs.toDataURL('image/png');
+    /* Skip blank canvases (very small PNG = blank) */
+    if (dataUrl.length < 500) continue;
+
+    var totalChunks = Math.ceil(dataUrl.length / CHUNK_SIZE);
+    for (var c = 0; c < totalChunks; c++) {
+      var chunk = dataUrl.substr(c * CHUNK_SIZE, CHUNK_SIZE);
+      queueMsg({
+        type: 'saveCanvasChunk',
+        noteId: nId,
+        index: c,
+        total: totalChunks,
+        data: chunk
+      });
+    }
+  }
 }
 
 /* ══════════════════════════════════════════════ */
@@ -464,11 +439,7 @@ function onStart(e) {
   var t = e.touches ? e.touches[0] : e;
   var note = findUp(el, 'note');
 
-  /* Tap on workspace background → deselect */
-  if (!note) {
-    selectNote(null);
-    return;
-  }
+  if (!note) { selectNote(null); return; }
 
   note.style.zIndex = zIdx++;
   selectNote(note);
@@ -478,14 +449,12 @@ function onStart(e) {
     note.parentNode.removeChild(note);
     if (nId) { delete undoMap[nId]; delete redoMap[nId]; }
     if (selectedNoteEl === note) selectedNoteEl = null;
-    scheduleSave();
     e.preventDefault(); return;
   }
   if (hasClass(el, 'cdot') && findUp(el, 'note-hdr')) {
     var newCol = el.getAttribute('data-color');
     note.style.backgroundColor = newCol;
     note.setAttribute('data-color', newCol);
-    scheduleSave();
     e.preventDefault(); return;
   }
   if (hasClass(el, 'resize-hdl')) {
@@ -501,7 +470,6 @@ function onStart(e) {
     e.preventDefault(); return;
   }
   if ((currentMode === 'draw' || currentMode === 'erase') && el.tagName === 'CANVAS') {
-    /* Push undo state BEFORE drawing */
     pushUndo(note);
     drawCvs = el; drawCtx = el.getContext('2d'); drawing = true;
     var r = el.getBoundingClientRect();
@@ -558,18 +526,6 @@ function onEnd(e) {
       cvs.getContext('2d').drawImage(tmp, 0, 0);
     }
   }
-  /* Save after drag, resize, or draw */
-  if (dragNote || resizeNote) { scheduleSave(); }
-
-  /* Debounced canvas save — waits 2s after last stroke to capture all strokes */
-  if (drawing && drawCvs) {
-    scheduleSave();
-    var canvasRef = drawCvs;
-    var noteRef = findUp(drawCvs, 'note');
-    if (noteRef) {
-      scheduleCanvasSave(noteRef, canvasRef);
-    }
-  }
   dragNote = null; resizeNote = null;
   drawing = false; drawCvs = null; drawCtx = null;
 }
@@ -583,7 +539,7 @@ document.addEventListener('mousedown', function(e) { mouseDown = true; e.touches
 document.addEventListener('mousemove', function(e) { if (!mouseDown) return; e.touches = [e]; onMove(e); }, false);
 document.addEventListener('mouseup', function(e) { mouseDown = false; onEnd(e); }, false);
 
-/* ── Alert toggle ── */
+/* ── Alert toggle (still auto-sends, it's small + important) ── */
 function toggleAlert(checked) {
   queueMsg({ type: 'setAlert', value: checked }, 'alert');
 }
@@ -617,6 +573,65 @@ function restorePrefs(prefs) {
 }
 
 /* ══════════════════════════════════════════════ */
+/* ── Canvas chunk loading (per note)         ── */
+/* ══════════════════════════════════════════════ */
+var canvasChunkBuffers = {};  /* noteId -> {totalChunks, chunks: []} */
+
+function handleCanvasMessage(msg) {
+  /* Single-message canvas (small enough to fit in one response) */
+  if (msg.type === 'canvasLoaded' && msg.noteId && msg.data) {
+    drawCanvasData(msg.noteId, msg.data);
+    return;
+  }
+  /* Chunked canvas response */
+  if (msg.type === 'canvasChunk' && msg.noteId) {
+    var buf = canvasChunkBuffers[msg.noteId];
+    if (!buf) {
+      buf = { totalChunks: msg.totalChunks, chunks: [] };
+      canvasChunkBuffers[msg.noteId] = buf;
+    }
+    buf.chunks[msg.chunkIndex] = msg.data;
+
+    /* Check if all chunks received */
+    var received = 0;
+    for (var i = 0; i < buf.totalChunks; i++) {
+      if (buf.chunks[i]) received++;
+    }
+    if (received === buf.totalChunks) {
+      var fullData = buf.chunks.join('');
+      delete canvasChunkBuffers[msg.noteId];
+      drawCanvasData(msg.noteId, fullData);
+    } else {
+      /* Request next missing chunk */
+      for (var j = 0; j < buf.totalChunks; j++) {
+        if (!buf.chunks[j]) {
+          queueMsg({ type: 'loadCanvasChunk', noteId: msg.noteId, chunkIndex: j }, 'lcc_' + msg.noteId + '_' + j);
+          break;
+        }
+      }
+    }
+  }
+}
+
+function drawCanvasData(noteId, dataUrl) {
+  var notes = workspace.querySelectorAll('.note');
+  for (var k = 0; k < notes.length; k++) {
+    if (notes[k].getAttribute('data-id') === noteId) {
+      var cvs = notes[k].querySelector('.note-canvas');
+      if (cvs) {
+        var targetCvs = cvs;
+        var img = new Image();
+        img.onload = function() {
+          targetCvs.getContext('2d').drawImage(img, 0, 0, targetCvs.width, targetCvs.height);
+        };
+        img.src = dataUrl;
+      }
+      break;
+    }
+  }
+}
+
+/* ══════════════════════════════════════════════ */
 /* ── Initialize Alexa SDK + restore notes    ── */
 /* ══════════════════════════════════════════════ */
 if (typeof Alexa !== 'undefined' && Alexa.create) {
@@ -625,18 +640,15 @@ if (typeof Alexa !== 'undefined' && Alexa.create) {
       alexaClient = args.alexa;
       var initData = args.message;
 
-      /* Restore alert checkbox */
       if (initData && initData.alertOn) {
         var chk = document.getElementById('alertChk');
         if (chk) chk.checked = true;
       }
 
-      /* Restore toolbar preferences */
       if (initData && initData.prefs) {
         restorePrefs(initData.prefs);
       }
 
-      /* Restore saved notes from Lambda/S3 */
       if (initData && initData.notes && initData.notes.length > 0) {
         while (workspace.firstChild) workspace.removeChild(workspace.firstChild);
         noteCount = 0;
@@ -645,7 +657,7 @@ if (typeof Alexa !== 'undefined' && Alexa.create) {
         }
         notesRestoredFromServer = true;
 
-        /* Request canvas data for each note (loaded individually to avoid size limit) */
+        /* Request canvas data for each note */
         var noteEls = workspace.querySelectorAll('.note');
         for (var j = 0; j < noteEls.length; j++) {
           var nId = noteEls[j].getAttribute('data-id');
@@ -657,34 +669,13 @@ if (typeof Alexa !== 'undefined' && Alexa.create) {
 
       /* Listen for Lambda responses */
       alexaClient.skill.onMessage(function(msg) {
-        if (msg.type === 'canvasLoaded' && msg.noteId && msg.data) {
-          /* Find the note and draw the canvas */
-          var notes = workspace.querySelectorAll('.note');
-          for (var k = 0; k < notes.length; k++) {
-            if (notes[k].getAttribute('data-id') === msg.noteId) {
-              var cvs = notes[k].querySelector('.note-canvas');
-              if (cvs) {
-                var img = new Image();
-                var targetCvs = cvs;
-                img.onload = function() {
-                  targetCvs.getContext('2d').drawImage(img, 0, 0, targetCvs.width, targetCvs.height);
-                };
-                img.src = msg.data;
-              }
-              break;
-            }
-          }
-        }
+        handleCanvasMessage(msg);
       });
     })
-    .catch(function(err) {
-      setDbg('Alexa SDK error: ' + err);
-    });
-} else {
-  setDbg('Browser mode');
+    .catch(function(err) {});
 }
 
-/* ── Boot: create one blank note (will be replaced if server has saved notes) ── */
+/* ── Boot: create one blank note ── */
 addNote();
 </script>
 </body>
