@@ -245,11 +245,13 @@ function startWebApp(handlerInput) {
             return { notes: savedNotes, prefs: prefs };
         });
     }).then(function(result) {
+        var alertOn = (result.prefs && result.prefs.alertOn) || false;
+        alertState = alertOn;
         var startDirective = {
             type: 'Alexa.Presentation.HTML.Start',
             data: {
                 appName: 'Quick Stickies',
-                alertOn: alertState,
+                alertOn: alertOn,
                 notes: result.notes,
                 prefs: result.prefs
             },
@@ -461,6 +463,11 @@ var HtmlMessageHandler = {
             var showBell = !!msg.value;
             alertState = showBell;
             console.log('Setting alert to: ' + showBell);
+            /* Persist alert state in prefs */
+            loadPrefsFromS3(getUserId(handlerInput)).then(function(prefs) {
+                prefs.alertOn = showBell;
+                return savePrefsToS3(getUserId(handlerInput), prefs);
+            }).catch(function() {});
 
             var sys = handlerInput.requestEnvelope.context.System;
             var deviceId = sys.device && sys.device.deviceId;
