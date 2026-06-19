@@ -402,7 +402,8 @@ function doSave() {
       fontSize: parseInt(n.getAttribute('data-fontsize')) || 18
     });
   }
-  var prefs = { penColor: penColor, penSize: penSize, fontSize: fontSize };
+  var alertChk = document.getElementById('alertChk');
+  var prefs = { penColor: penColor, penSize: penSize, fontSize: fontSize, alertOn: alertChk ? alertChk.checked : false };
   queueMsg({ type: 'saveNotes', notes: arr, prefs: prefs }, 'notes');
 
   /* 2. Save each canvas as PNG chunks */

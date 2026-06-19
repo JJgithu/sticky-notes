@@ -308,10 +308,17 @@ var HtmlMessageHandler = {
         if (msg.type === 'saveNotes') {
             var userId = getUserId(handlerInput);
             var notes = msg.notes || [];
-            /* Save prefs independently — never let prefs failure break note save */
+            /* Merge incoming prefs with existing (preserves alertOn etc.) */
             if (msg.prefs) {
-                savePrefsToS3(userId, msg.prefs).catch(function(err) {
-                    console.log('Prefs save error (non-blocking): ' + err.message);
+                loadPrefsFromS3(userId).then(function(existing) {
+                    var merged = existing || {};
+                    var incoming = msg.prefs;
+                    for (var k in incoming) {
+                        if (incoming.hasOwnProperty(k)) merged[k] = incoming[k];
+                    }
+                    return savePrefsToS3(userId, merged);
+                }).catch(function(err) {
+                    console.log('Prefs merge error (non-blocking): ' + err.message);
                 });
             }
             return saveNotesToS3(userId, notes).then(function() {
@@ -465,9 +472,10 @@ var HtmlMessageHandler = {
             console.log('Setting alert to: ' + showBell);
             /* Persist alert state in prefs */
             loadPrefsFromS3(getUserId(handlerInput)).then(function(prefs) {
+                if (!prefs) prefs = {};
                 prefs.alertOn = showBell;
                 return savePrefsToS3(getUserId(handlerInput), prefs);
-            }).catch(function() {});
+            }).catch(function(e) { console.log('Alert prefs save error: ' + e.message); });
 
             var sys = handlerInput.requestEnvelope.context.System;
             var deviceId = sys.device && sys.device.deviceId;
