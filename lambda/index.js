@@ -41,6 +41,7 @@ function saveNotesToS3(userId, notes) {
         console.log('Notes saved to S3 (' + notes.length + ' notes)');
     }).catch(function(err) {
         console.log('S3 save error: ' + err.message);
+        throw err;
     });
 }
 
@@ -80,6 +81,7 @@ function saveCanvasToS3(userId, noteId, base64Data) {
         console.log('Canvas saved: ' + noteId + ' (' + contentType + ', ' + raw.length + ' bytes)');
     }).catch(function(err) {
         console.log('Canvas save error: ' + err.message);
+        throw err;
     });
 }
 
@@ -225,6 +227,20 @@ function updateDataStore(deviceId, showBell) {
 // ── Track alert state ──
 var alertState = false;
 
+// ── Reply to the web app ──
+// Echoes the message's seq so the web app knows which message was answered.
+function replyToWebApp(handlerInput, message) {
+    var incoming = handlerInput.requestEnvelope.request.message || {};
+    if (incoming.seq !== undefined) message.seq = incoming.seq;
+    return handlerInput.responseBuilder
+        .addDirective({
+            type: 'Alexa.Presentation.HTML.HandleMessage',
+            message: message
+        })
+        .withShouldEndSession(undefined)
+        .getResponse();
+}
+
 // ══════════════════════════════════════════════
 // ── Start the HTML Web App ──
 // ══════════════════════════════════════════════
@@ -256,7 +272,7 @@ function startWebApp(handlerInput) {
                 prefs: result.prefs
             },
             request: {
-                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=12',
+                uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=13',
                 method: 'GET'
             },
             configuration: {
@@ -322,13 +338,9 @@ var HtmlMessageHandler = {
                 });
             }
             return saveNotesToS3(userId, notes).then(function() {
-                return handlerInput.responseBuilder
-                    .addDirective({
-                        type: 'Alexa.Presentation.HTML.HandleMessage',
-                        message: { type: 'saveResult', status: 'ok', count: notes.length }
-                    })
-                    .withShouldEndSession(undefined)
-                    .getResponse();
+                return replyToWebApp(handlerInput, { type: 'saveResult', status: 'ok', count: notes.length });
+            }, function() {
+                return replyToWebApp(handlerInput, { type: 'saveResult', status: 'error' });
             });
         }
 
@@ -336,10 +348,13 @@ var HtmlMessageHandler = {
         if (msg.type === 'saveCanvasChunk') {
             var userId = getUserId(handlerInput);
             var safe = safeUserId(userId);
-            var chunkKey = 'canvas_chunks/' + safe + '/' + msg.noteId + '_c' + msg.index;
+            /* saveId gives every save its own chunk keys, so chunks from an
+               interrupted save can never be mixed into a later one */
+            var saveId = String(msg.saveId || '').replace(/[^a-zA-Z0-9]/g, '');
+            var chunkPrefix = 'canvas_chunks/' + safe + '/' + msg.noteId + (saveId ? '_' + saveId : '') + '_c';
             return s3.putObject({
                 Bucket: S3_BUCKET,
-                Key: chunkKey,
+                Key: chunkPrefix + msg.index,
                 Body: msg.data,
                 ContentType: 'text/plain'
             }).promise().then(function() {
@@ -349,7 +364,7 @@ var HtmlMessageHandler = {
                     for (var i = 0; i < msg.total; i++) {
                         readPromises.push(s3.getObject({
                             Bucket: S3_BUCKET,
-                            Key: 'canvas_chunks/' + safe + '/' + msg.noteId + '_c' + i
+                            Key: chunkPrefix + i
                         }).promise());
                     }
                     return Promise.all(readPromises).then(function(results) {
@@ -358,17 +373,29 @@ var HtmlMessageHandler = {
                             combined += results[j].Body.toString();
                         }
                         console.log('Combined ' + msg.total + ' chunks: ' + combined.length + ' chars');
+                        /* Never replace a good drawing with an incomplete one */
+                        if (msg.length && combined.length !== msg.length) {
+                            throw new Error('Canvas incomplete: ' + combined.length + ' of ' + msg.length + ' chars');
+                        }
                         return saveCanvasToS3(userId, msg.noteId, combined);
+                    }).then(function() {
+                        if (!saveId) return;
+                        /* Remove this save's temporary chunks (best effort) */
+                        var keys = [];
+                        for (var d = 0; d < msg.total; d++) keys.push({ Key: chunkPrefix + d });
+                        return s3.deleteObjects({
+                            Bucket: S3_BUCKET,
+                            Delete: { Objects: keys, Quiet: true }
+                        }).promise().catch(function(err) {
+                            console.log('Chunk cleanup error: ' + err.message);
+                        });
                     });
                 }
             }).then(function() {
-                return handlerInput.responseBuilder
-                    .addDirective({
-                        type: 'Alexa.Presentation.HTML.HandleMessage',
-                        message: { type: 'chunkSaved', noteId: msg.noteId, index: msg.index }
-                    })
-                    .withShouldEndSession(undefined)
-                    .getResponse();
+                return replyToWebApp(handlerInput, { type: 'chunkSaved', noteId: msg.noteId, index: msg.index, ok: true });
+            }, function(err) {
+                console.log('Chunk save error: ' + err.message);
+                return replyToWebApp(handlerInput, { type: 'chunkSaved', noteId: msg.noteId, index: msg.index, ok: false });
             });
         }
 
@@ -376,13 +403,9 @@ var HtmlMessageHandler = {
         if (msg.type === 'saveCanvas') {
             var userId = getUserId(handlerInput);
             return saveCanvasToS3(userId, msg.noteId, msg.data).then(function() {
-                return handlerInput.responseBuilder
-                    .addDirective({
-                        type: 'Alexa.Presentation.HTML.HandleMessage',
-                        message: { type: 'canvasSaved', noteId: msg.noteId }
-                    })
-                    .withShouldEndSession(undefined)
-                    .getResponse();
+                return replyToWebApp(handlerInput, { type: 'canvasSaved', noteId: msg.noteId, ok: true });
+            }, function() {
+                return replyToWebApp(handlerInput, { type: 'canvasSaved', noteId: msg.noteId, ok: false });
             });
         }
 
@@ -402,23 +425,14 @@ var HtmlMessageHandler = {
                     var totalChunks = Math.ceil(fullData.length / chunkSize);
 
                     if (totalChunks <= 1) {
-                        return handlerInput.responseBuilder.addDirective({
-                            type: 'Alexa.Presentation.HTML.HandleMessage',
-                            message: { type: 'canvasLoaded', noteId: msg.noteId, data: fullData }
-                        }).withShouldEndSession(undefined).getResponse();
+                        return replyToWebApp(handlerInput, { type: 'canvasLoaded', noteId: msg.noteId, data: fullData });
                     } else {
                         var chunk = fullData.substr(0, chunkSize);
-                        return handlerInput.responseBuilder.addDirective({
-                            type: 'Alexa.Presentation.HTML.HandleMessage',
-                            message: { type: 'canvasChunk', noteId: msg.noteId, chunkIndex: 0, totalChunks: totalChunks, data: chunk }
-                        }).withShouldEndSession(undefined).getResponse();
+                        return replyToWebApp(handlerInput, { type: 'canvasChunk', noteId: msg.noteId, chunkIndex: 0, totalChunks: totalChunks, data: chunk });
                     }
                 })
                 .catch(function() {
-                    return handlerInput.responseBuilder.addDirective({
-                        type: 'Alexa.Presentation.HTML.HandleMessage',
-                        message: { type: 'canvasLoaded', noteId: msg.noteId, data: null }
-                    }).withShouldEndSession(undefined).getResponse();
+                    return replyToWebApp(handlerInput, { type: 'canvasLoaded', noteId: msg.noteId, data: null });
                 });
         }
 
@@ -438,16 +452,10 @@ var HtmlMessageHandler = {
                     var totalChunks = Math.ceil(fullData.length / chunkSize);
                     var start = msg.chunkIndex * chunkSize;
                     var chunk = fullData.substr(start, chunkSize);
-                    return handlerInput.responseBuilder.addDirective({
-                        type: 'Alexa.Presentation.HTML.HandleMessage',
-                        message: { type: 'canvasChunk', noteId: msg.noteId, chunkIndex: msg.chunkIndex, totalChunks: totalChunks, data: chunk }
-                    }).withShouldEndSession(undefined).getResponse();
+                    return replyToWebApp(handlerInput, { type: 'canvasChunk', noteId: msg.noteId, chunkIndex: msg.chunkIndex, totalChunks: totalChunks, data: chunk });
                 })
                 .catch(function() {
-                    return handlerInput.responseBuilder.addDirective({
-                        type: 'Alexa.Presentation.HTML.HandleMessage',
-                        message: { type: 'canvasChunk', noteId: msg.noteId, chunkIndex: msg.chunkIndex, totalChunks: 0, data: '' }
-                    }).withShouldEndSession(undefined).getResponse();
+                    return replyToWebApp(handlerInput, { type: 'canvasChunk', noteId: msg.noteId, chunkIndex: msg.chunkIndex, totalChunks: 0, data: '' });
                 });
         }
 
@@ -455,13 +463,7 @@ var HtmlMessageHandler = {
         if (msg.type === 'savePrefs') {
             var userId = getUserId(handlerInput);
             return savePrefsToS3(userId, msg.prefs || {}).then(function() {
-                return handlerInput.responseBuilder
-                    .addDirective({
-                        type: 'Alexa.Presentation.HTML.HandleMessage',
-                        message: { type: 'prefsSaved' }
-                    })
-                    .withShouldEndSession(undefined)
-                    .getResponse();
+                return replyToWebApp(handlerInput, { type: 'prefsSaved' });
             });
         }
 
@@ -481,27 +483,46 @@ var HtmlMessageHandler = {
             var deviceId = sys.device && sys.device.deviceId;
 
             if (!deviceId) {
-                return handlerInput.responseBuilder
-                    .addDirective({
-                        type: 'Alexa.Presentation.HTML.HandleMessage',
-                        message: { status: 'error', reason: 'no-device-id' }
-                    })
-                    .withShouldEndSession(undefined)
-                    .getResponse();
+                return replyToWebApp(handlerInput, { status: 'error', reason: 'no-device-id' });
             }
 
             return updateDataStore(deviceId, showBell).then(function(statusCode) {
-                return handlerInput.responseBuilder
-                    .addDirective({
-                        type: 'Alexa.Presentation.HTML.HandleMessage',
-                        message: { status: statusCode === 200 ? 'ok' : 'fail', code: statusCode, bell: showBell }
-                    })
-                    .withShouldEndSession(undefined)
-                    .getResponse();
+                return replyToWebApp(handlerInput, { status: statusCode === 200 ? 'ok' : 'fail', code: statusCode, bell: showBell });
             });
         }
 
+        // ── Close the app (sent by the web app once everything is saved) ──
+        if (msg.type === 'closeApp') {
+            console.log('Web app saved everything → closing');
+            return handlerInput.responseBuilder
+                .withShouldEndSession(true)
+                .getResponse();
+        }
+
+        /* Unknown message: still answer so the web app's queue moves on */
+        return replyToWebApp(handlerInput, { type: 'ignored' });
+    }
+};
+
+// ── "Alexa, stop" / "Alexa, cancel": save before closing ──
+// The web app saves anything unsaved, then sends closeApp to end the session.
+var StopIntentHandler = {
+    canHandle: function(handlerInput) {
+        if (Alexa.getRequestType(handlerInput.requestEnvelope) !== 'IntentRequest') return false;
+        var name = Alexa.getIntentName(handlerInput.requestEnvelope);
+        return name === 'AMAZON.StopIntent' || name === 'AMAZON.CancelIntent' || name === 'AMAZON.NavigateHomeIntent';
+    },
+    handle: function(handlerInput) {
+        var htmlSupported = Alexa.getSupportedInterfaces(handlerInput.requestEnvelope)['Alexa.Presentation.HTML'];
+        if (!htmlSupported) {
+            return handlerInput.responseBuilder.withShouldEndSession(true).getResponse();
+        }
+        console.log('Stop requested → web app saves, then closes');
         return handlerInput.responseBuilder
+            .addDirective({
+                type: 'Alexa.Presentation.HTML.HandleMessage',
+                message: { type: 'prepareToClose' }
+            })
             .withShouldEndSession(undefined)
             .getResponse();
     }
@@ -547,6 +568,10 @@ var ErrorHandler = {
     canHandle: function() { return true; },
     handle: function(handlerInput, error) {
         console.log('Error: ' + error.stack);
+        /* Web app messages (e.g. autosave) get an error reply instead of speech */
+        if (Alexa.getRequestType(handlerInput.requestEnvelope) === 'Alexa.Presentation.HTML.Message') {
+            return replyToWebApp(handlerInput, { type: 'error', status: 'error', ok: false });
+        }
         return handlerInput.responseBuilder
             .speak('Sorry, something went wrong with Quick Stickies.')
             .getResponse();
@@ -559,6 +584,7 @@ exports.handler = Alexa.SkillBuilders.custom()
         LaunchRequestHandler,
         UserEventHandler,
         HtmlMessageHandler,
+        StopIntentHandler,
         UsagesInstalledHandler,
         UsagesRemovedHandler,
         SessionEndedRequestHandler

@@ -23,6 +23,10 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 .tbtn.act{background:#0078D7}
 .tbtn-add{background:#0078D7}
 .tbtn-save{background:#27ae60;font-weight:bold}
+.tbtn-save.unsaved{background:#e67e22}
+.tbtn-save.saving{background:#0078D7}
+/* Fixed width so the toolbar doesn't shift as the save status changes */
+@media (min-width:1200px){.tbtn-save{min-width:88px}}
 .sep{width:1px;height:28px;background:rgba(255,255,255,0.12);margin:0 8px}
 .pdot{
   width:22px;height:22px;border-radius:11px;
@@ -52,6 +56,10 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 }
 @keyframes spin{to{transform:rotate(360deg)}}
 #saveOverlay .msg{color:#fff;font-size:18px;text-align:center}
+#saveActions{display:none;margin-top:18px}
+#saveActions.show{display:block}
+#saveActions .tbtn{padding:10px 18px;font-size:16px;margin:0 6px}
+#saveOverlay.failed .spinner{display:none}
 
 #workspace{position:absolute;top:54px;left:0;right:0;bottom:0;overflow:hidden}
 
@@ -97,8 +105,8 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 
 <div id="toolbar">
   <span class="title">Quick Stickies</span>
-  <button class="tbtn tbtn-add" onclick="addNote()">+ Note</button>
-  <button class="tbtn tbtn-save" onclick="doSave()">💾 Save</button>
+  <button class="tbtn tbtn-add" onclick="newNote()">+ Note</button>
+  <button class="tbtn tbtn-save" id="btn-save" onclick="doSave()">✓ Saved</button>
   <div class="sep"></div>
   <button class="tbtn mode-btn" id="btn-type" onclick="setMode('type')">Type</button>
   <button class="tbtn mode-btn act" id="btn-draw" onclick="setMode('draw')">Draw</button>
@@ -129,6 +137,10 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 <div id="saveOverlay">
   <div class="spinner"></div>
   <div class="msg" id="saveMsg">Saving notes...</div>
+  <div id="saveActions">
+    <button class="tbtn tbtn-add" onclick="retryClose()">Try again</button>
+    <button class="tbtn" onclick="closeWithoutSaving()">Close without saving</button>
+  </div>
 </div>
 
 <div id="workspace"></div>
@@ -167,6 +179,7 @@ var dragNote = null, dragOffX = 0, dragOffY = 0;
 var resizeNote = null, rsStartX = 0, rsStartY = 0, rsStartW = 0, rsStartH = 0;
 var drawCvs = null, drawCtx = null, drawing = false;
 var lastX = 0, lastY = 0, prevMidX = 0, prevMidY = 0;
+var strokeNote = null, noteMoved = false, noteResized = false;  /* changes made by the current gesture */
 
 /* ── Helpers ── */
 function hasClass(el, c) {
@@ -213,6 +226,7 @@ function pickPen(el) {
   for (var i = 0; i < dots.length; i++) {
     dots[i].className = dots[i] === el ? 'pdot sel' : 'pdot';
   }
+  markMetaDirty();
 }
 
 function pickSize(sz, el) {
@@ -221,6 +235,7 @@ function pickSize(sz, el) {
   for (var i = 0; i < btns.length; i++) {
     btns[i].className = btns[i] === el ? 'tool-btn sel' : 'tool-btn';
   }
+  markMetaDirty();
 }
 
 function pickFontSize(sz, el) {
@@ -236,6 +251,7 @@ function pickFontSize(sz, el) {
       selectedNoteEl.setAttribute('data-fontsize', sz);
     }
   }
+  markMetaDirty();
 }
 
 /* ── Undo / Redo ── */
@@ -260,9 +276,10 @@ function doUndo() {
   try { redoMap[nId].push(cvs.toDataURL('image/png')); } catch(e) {}
   var dataUrl = undoMap[nId].pop();
   var ctx = cvs.getContext('2d');
+  var noteEl = selectedNoteEl;
   ctx.clearRect(0, 0, cvs.width, cvs.height);
   var img = new Image();
-  img.onload = function() { ctx.drawImage(img, 0, 0, cvs.width, cvs.height); };
+  img.onload = function() { ctx.drawImage(img, 0, 0, cvs.width, cvs.height); markCanvasDirty(noteEl); };
   img.src = dataUrl;
 }
 
@@ -275,9 +292,10 @@ function doRedo() {
   try { undoMap[nId].push(cvs.toDataURL('image/png')); } catch(e) {}
   var dataUrl = redoMap[nId].pop();
   var ctx = cvs.getContext('2d');
+  var noteEl = selectedNoteEl;
   ctx.clearRect(0, 0, cvs.width, cvs.height);
   var img = new Image();
-  img.onload = function() { ctx.drawImage(img, 0, 0, cvs.width, cvs.height); };
+  img.onload = function() { ctx.drawImage(img, 0, 0, cvs.width, cvs.height); markCanvasDirty(noteEl); };
   img.src = dataUrl;
 }
 
@@ -337,55 +355,181 @@ function addNote(data) {
   return n;
 }
 
-/* ══════════════════════════════════════════════ */
-/* ── Message queue (serialized, no flooding)  ── */
-/* ══════════════════════════════════════════════ */
-var msgQueue = [];
-var msgSending = false;
-var saveInProgress = false;
-var saveMsgEl = document.getElementById('saveMsg');
+/* ── "+ Note" button ── */
+function newNote() {
+  addNote();
+  markMetaDirty();
+}
 
-function queueMsg(msg, key) {
-  if (!alexaClient || !alexaClient.skill || !alexaClient.skill.sendMessage) return;
+/* ══════════════════════════════════════════════ */
+/* ── Message queue (one at a time, confirmed) ── */
+/* ══════════════════════════════════════════════ */
+/* Alexa allows at most 2 messages per second and silently drops messages sent
+   together. Each message waits for the Lambda's reply (matched by seq) before
+   the next one goes out; unanswered or throttled messages are sent again. */
+var SEND_GAP_MS = 550;
+var REPLY_TIMEOUT_MS = 5000;
+var MAX_SEND_ATTEMPTS = 4;
+
+var msgQueue = [];
+var inFlight = null;
+var lastSendAt = 0;
+var msgSeq = 0;
+var drainTimer = null;
+
+function canSend() {
+  return !!(alexaClient && alexaClient.skill && alexaClient.skill.sendMessage);
+}
+
+/* onDone(ok, reply) runs when the Lambda answers, or with ok=false after the last attempt */
+function queueMsg(msg, key, onDone) {
+  if (!canSend()) { if (onDone) onDone(false, null); return; }
+  var item = {key: key || '', msg: msg, onDone: onDone || null, attempts: 0, seqs: [], timer: null};
   if (key) {
     for (var i = 0; i < msgQueue.length; i++) {
-      if (msgQueue[i].key === key) { msgQueue[i] = {key: key, msg: msg}; drainQueue(); return; }
+      if (msgQueue[i].key === key) { msgQueue[i] = item; drainQueue(); return; }
     }
   }
-  msgQueue.push({key: key || '', msg: msg});
+  msgQueue.push(item);
   drainQueue();
 }
 
 function drainQueue() {
-  if (msgSending || msgQueue.length === 0) return;
-  msgSending = true;
-  var item = msgQueue.shift();
-  try { alexaClient.skill.sendMessage(item.msg); } catch(e) {}
-  setTimeout(function() {
-    msgSending = false;
-    if (msgQueue.length === 0 && saveInProgress) {
-      saveInProgress = false;
-      if (saveMsgEl) saveMsgEl.textContent = 'Saved!';
-      setTimeout(function() {
-        document.getElementById('saveOverlay').className = '';
-      }, 1200);
-    }
+  if (inFlight || drainTimer || msgQueue.length === 0) return;
+  var wait = lastSendAt + SEND_GAP_MS - Date.now();
+  if (wait > 0) {
+    drainTimer = setTimeout(function() { drainTimer = null; drainQueue(); }, wait);
+    return;
+  }
+  inFlight = msgQueue.shift();
+  sendInFlight();
+}
+
+function sendInFlight() {
+  var item = inFlight;
+  var seq = ++msgSeq;
+  item.attempts++;
+  item.seqs.push(seq);
+  item.msg.seq = seq;
+  lastSendAt = Date.now();
+  item.timer = setTimeout(function() { retryInFlight(item, 0); }, REPLY_TIMEOUT_MS);
+  try {
+    alexaClient.skill.sendMessage(item.msg, function(res) {
+      /* Throttled (429) or rejected before reaching the skill */
+      if (res && res.statusCode && res.statusCode !== 200 && item.msg.seq === seq) {
+        retryInFlight(item, (res.rateLimit && res.rateLimit.timeUntilNextRequestMs) || 1000);
+      }
+    });
+  } catch(e) {
+    retryInFlight(item, 1000);
+  }
+}
+
+function retryInFlight(item, delay) {
+  if (item !== inFlight) return;
+  clearTimeout(item.timer);
+  if (item.attempts >= MAX_SEND_ATTEMPTS) { finishInFlight(false, null); return; }
+  var wait = Math.max(delay, lastSendAt + SEND_GAP_MS - Date.now());
+  item.timer = setTimeout(function() { if (item === inFlight) sendInFlight(); }, wait);
+}
+
+function finishInFlight(ok, reply) {
+  var item = inFlight;
+  clearTimeout(item.timer);
+  inFlight = null;
+  try {
+    if (item.onDone) item.onDone(ok, reply);
+  } finally {
     drainQueue();
-  }, 1500);
+  }
+}
+
+/* A reply from the Lambda confirms the message in flight */
+function onReply(reply) {
+  if (!inFlight) return;
+  /* Ignore late replies to earlier messages (older Lambdas send no seq) */
+  if (reply.seq !== undefined && inFlight.seqs.indexOf(reply.seq) === -1) return;
+  finishInFlight(true, reply);
 }
 
 /* ══════════════════════════════════════════════ */
-/* ── Manual Save (full resolution PNG chunks) ── */
+/* ── Saving: autosave, Save button, on close  ── */
 /* ══════════════════════════════════════════════ */
+/* Every change bumps a version number. A save uploads only what changed since
+   the last confirmed save, so drawings stay full-resolution PNGs without
+   re-sending notes that didn't change. */
 var CHUNK_SIZE = 12000;
+var AUTOSAVE_DELAY_MS = 1000;      /* after the last change */
+var AUTOSAVE_MAX_WAIT_MS = 10000;  /* while changes keep coming */
+var SAVE_RETRY_MS = 10000;         /* after a failed save */
 
-function doSave() {
-  if (!alexaClient || !alexaClient.skill || !alexaClient.skill.sendMessage) return;
-  saveInProgress = true;
-  if (saveMsgEl) saveMsgEl.textContent = 'Saving notes...';
-  document.getElementById('saveOverlay').className = 'show';
+var metaVer = 0, metaSavedVer = 0;        /* note list, positions, text, colors, prefs */
+var canvasVer = {}, canvasSavedVer = {};  /* noteId -> drawing version */
+var canvasLoadPending = {};               /* noteId -> saved drawing still loading */
+var saveRunning = false;
+var saveFailed = false;
+var saveTimer = null;
+var firstChangeAt = 0;
+var saveWaiters = [];
+var saveDone = 0, saveTotal = 0;
+var closing = false;
+var saveMsgEl = document.getElementById('saveMsg');
 
-  /* 1. Save note metadata + prefs */
+function markMetaDirty() {
+  metaVer++;
+  scheduleSave();
+}
+
+function markCanvasDirty(noteEl) {
+  var nId = noteEl && noteEl.getAttribute('data-id');
+  if (!nId) return;
+  canvasVer[nId] = (canvasVer[nId] || 0) + 1;
+  scheduleSave();
+}
+
+function findNote(noteId) {
+  var notes = workspace.querySelectorAll('.note');
+  for (var i = 0; i < notes.length; i++) {
+    if (notes[i].getAttribute('data-id') === noteId) return notes[i];
+  }
+  return null;
+}
+
+function dirtyCanvasIds() {
+  var ids = [];
+  var notes = workspace.querySelectorAll('.note');
+  for (var i = 0; i < notes.length; i++) {
+    var nId = notes[i].getAttribute('data-id');
+    if (nId && (canvasVer[nId] || 0) !== (canvasSavedVer[nId] || 0)) ids.push(nId);
+  }
+  return ids;
+}
+
+function hasUnsaved() {
+  return metaVer !== metaSavedVer || dirtyCanvasIds().length > 0;
+}
+
+/* A drawing whose saved version is still loading must wait, otherwise the
+   upload would replace the saved drawing with only the new strokes */
+function canSaveNow() {
+  if (metaVer !== metaSavedVer) return true;
+  var ids = dirtyCanvasIds();
+  for (var i = 0; i < ids.length; i++) {
+    if (!canvasLoadPending[ids[i]]) return true;
+  }
+  return false;
+}
+
+function scheduleSave() {
+  var now = Date.now();
+  if (!saveTimer) firstChangeAt = now;
+  clearTimeout(saveTimer);
+  var wait = Math.min(AUTOSAVE_DELAY_MS, firstChangeAt + AUTOSAVE_MAX_WAIT_MS - now);
+  saveTimer = setTimeout(runSave, wait > 0 ? wait : 0);
+  updateSaveStatus();
+}
+
+function buildSaveNotesMsg() {
   var notes = workspace.querySelectorAll('.note');
   var arr = [];
   for (var i = 0; i < notes.length; i++) {
@@ -404,31 +548,179 @@ function doSave() {
   }
   var alertChk = document.getElementById('alertChk');
   var prefs = { penColor: penColor, penSize: penSize, fontSize: fontSize, alertOn: alertChk ? alertChk.checked : false };
-  queueMsg({ type: 'saveNotes', notes: arr, prefs: prefs }, 'notes');
+  return { type: 'saveNotes', notes: arr, prefs: prefs };
+}
 
-  /* 2. Save each canvas as PNG chunks */
-  for (var j = 0; j < notes.length; j++) {
-    var note = notes[j];
-    var cvs = note.querySelector('.note-canvas');
-    var nId = note.getAttribute('data-id');
-    if (!cvs || !nId) continue;
+function runSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (saveRunning || !canSend()) return;  /* resumed by settleSave() / Alexa start-up */
+  /* Don't take a snapshot in the middle of a stroke */
+  if (drawing && saveWaiters.length === 0) { saveTimer = setTimeout(runSave, 500); return; }
 
-    var dataUrl = cvs.toDataURL('image/png');
-    /* Skip blank canvases (very small PNG = blank) */
-    if (dataUrl.length < 500) continue;
-
-    var totalChunks = Math.ceil(dataUrl.length / CHUNK_SIZE);
-    for (var c = 0; c < totalChunks; c++) {
-      var chunk = dataUrl.substr(c * CHUNK_SIZE, CHUNK_SIZE);
-      queueMsg({
-        type: 'saveCanvasChunk',
-        noteId: nId,
-        index: c,
-        total: totalChunks,
-        data: chunk
-      });
-    }
+  var jobs = [];
+  var units = 0;
+  if (metaVer !== metaSavedVer) {
+    jobs.push({ kind: 'meta', ver: metaVer, msg: buildSaveNotesMsg() });
+    units++;
   }
+  var ids = dirtyCanvasIds();
+  for (var i = 0; i < ids.length; i++) {
+    if (canvasLoadPending[ids[i]]) continue;
+    var dataUrl = findNote(ids[i]).querySelector('.note-canvas').toDataURL('image/png');
+    var total = Math.ceil(dataUrl.length / CHUNK_SIZE);
+    jobs.push({ kind: 'canvas', id: ids[i], ver: canvasVer[ids[i]], dataUrl: dataUrl, total: total,
+                saveId: Date.now().toString(36) + i });
+    units += total;
+  }
+  if (jobs.length === 0) { settleSave(); return; }
+
+  saveRunning = true;
+  saveFailed = false;
+  saveDone = 0;
+  saveTotal = units;
+  updateSaveStatus();
+  runSaveJob(jobs, 0);
+}
+
+function runSaveJob(jobs, i) {
+  if (i >= jobs.length) { saveRunning = false; settleSave(); return; }
+  var job = jobs[i];
+  var next = function(ok) {
+    if (!ok) { saveFailed = true; saveRunning = false; settleSave(); return; }
+    runSaveJob(jobs, i + 1);
+  };
+  if (job.kind === 'meta') {
+    queueMsg(job.msg, null, function(ok, reply) {
+      if (!ok || (reply && reply.status === 'error')) { next(false); return; }
+      if (job.ver > metaSavedVer) metaSavedVer = job.ver;
+      saveDone++;
+      next(true);
+    });
+  } else {
+    sendCanvasChunk(job, 0, next);
+  }
+}
+
+/* Chunks go one by one; the Lambda joins them after the last one */
+function sendCanvasChunk(job, c, next) {
+  queueMsg({
+    type: 'saveCanvasChunk',
+    noteId: job.id,
+    saveId: job.saveId,
+    index: c,
+    total: job.total,
+    length: job.dataUrl.length,
+    data: job.dataUrl.substr(c * CHUNK_SIZE, CHUNK_SIZE)
+  }, null, function(ok, reply) {
+    if (!ok || (reply && reply.ok === false)) { next(false); return; }
+    saveDone++;
+    if (c + 1 < job.total) { updateSaveStatus(); sendCanvasChunk(job, c + 1, next); return; }
+    if ((canvasSavedVer[job.id] || 0) < job.ver) canvasSavedVer[job.id] = job.ver;
+    next(true);
+  });
+}
+
+/* After a save round: finish, go again for newer changes, or retry later */
+function settleSave() {
+  if (saveRunning) return;
+  if (saveFailed) {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(runSave, SAVE_RETRY_MS);
+    resolveSaveWaiters(false);
+  } else if (!hasUnsaved()) {
+    resolveSaveWaiters(true);
+  } else if (canSaveNow()) {
+    if (saveWaiters.length) runSave();
+    else if (!saveTimer) scheduleSave();
+  }
+  /* otherwise a drawing is still loading; canvasLoadDone() resumes */
+  updateSaveStatus();
+}
+
+function resolveSaveWaiters(ok) {
+  var waiters = saveWaiters;
+  saveWaiters = [];
+  for (var i = 0; i < waiters.length; i++) waiters[i](ok);
+}
+
+/* Save everything now; cb(ok) runs once every change is confirmed saved */
+function saveNow(cb) {
+  if (cb) saveWaiters.push(cb);
+  if (!saveRunning) runSave();
+}
+
+function updateSaveStatus() {
+  var btn = document.getElementById('btn-save');
+  var pct = saveTotal ? Math.floor(saveDone * 100 / saveTotal) : 0;
+  if (saveRunning) {
+    btn.className = 'tbtn tbtn-save saving';
+    btn.textContent = 'Saving\u2026';
+  } else if (hasUnsaved()) {
+    btn.className = 'tbtn tbtn-save unsaved';
+    btn.textContent = saveFailed ? '⚠ Save' : '💾 Save';
+  } else {
+    btn.className = 'tbtn tbtn-save';
+    btn.textContent = '✓ Saved';
+  }
+  if (closing && saveRunning && saveMsgEl) saveMsgEl.textContent = 'Saving before closing... ' + pct + '%';
+}
+
+function showOverlay(text) {
+  if (saveMsgEl) saveMsgEl.textContent = text;
+  document.getElementById('saveActions').className = '';
+  document.getElementById('saveOverlay').className = 'show';
+}
+
+function hideOverlay() {
+  document.getElementById('saveOverlay').className = '';
+}
+
+/* ── Save button ── */
+function doSave() {
+  if (!canSend() || closing) return;
+  showOverlay('Saving notes...');
+  saveNow(function(ok) {
+    if (closing) return;
+    if (saveMsgEl) saveMsgEl.textContent = ok ? 'Saved!' : 'Could not save. Will keep trying.';
+    setTimeout(function() { if (!closing) hideOverlay(); }, ok ? 1200 : 2500);
+  });
+}
+
+/* ── "Alexa, stop": save everything, then close ── */
+function saveAndClose() {
+  if (closing || !canSend()) return;
+  closing = true;
+  showOverlay('Saving before closing...');
+  saveNow(function(ok) {
+    if (!ok) {
+      if (saveMsgEl) saveMsgEl.textContent = 'Could not save your notes.';
+      document.getElementById('saveOverlay').className = 'show failed';
+      document.getElementById('saveActions').className = 'show';
+      return;
+    }
+    if (saveMsgEl) saveMsgEl.textContent = 'Saved! Closing...';
+    sendClose();
+  });
+}
+
+function retryClose() {
+  closing = false;
+  saveAndClose();
+}
+
+function closeWithoutSaving() {
+  showOverlay('Closing...');
+  sendClose();
+}
+
+/* The Lambda ends the session, which closes the app */
+function sendClose() {
+  queueMsg({ type: 'closeApp' }, 'close', function() {
+    /* Still open (no answer): give the app back to the user */
+    closing = false;
+    hideOverlay();
+  });
 }
 
 /* ══════════════════════════════════════════════ */
@@ -450,12 +742,14 @@ function onStart(e) {
     note.parentNode.removeChild(note);
     if (nId) { delete undoMap[nId]; delete redoMap[nId]; }
     if (selectedNoteEl === note) selectedNoteEl = null;
+    markMetaDirty();
     e.preventDefault(); return;
   }
   if (hasClass(el, 'cdot') && findUp(el, 'note-hdr')) {
     var newCol = el.getAttribute('data-color');
     note.style.backgroundColor = newCol;
     note.setAttribute('data-color', newCol);
+    markMetaDirty();
     e.preventDefault(); return;
   }
   if (hasClass(el, 'resize-hdl')) {
@@ -489,11 +783,13 @@ function onMove(e) {
     resizeNote.style.width = nw + 'px'; resizeNote.style.height = nh + 'px';
     var cvs = resizeNote.querySelector('.note-canvas');
     if (cvs) { cvs.style.width = nw + 'px'; cvs.style.height = (nh - 34) + 'px'; }
+    noteResized = true;
     e.preventDefault(); return;
   }
   if (dragNote) {
     dragNote.style.left = (t.clientX - dragOffX) + 'px';
     dragNote.style.top  = (t.clientY - dragOffY) + 'px';
+    noteMoved = true;
     e.preventDefault(); return;
   }
   if (drawing && drawCtx) {
@@ -510,6 +806,7 @@ function onMove(e) {
     }
     drawCtx.lineCap = 'round'; drawCtx.lineJoin = 'round'; drawCtx.stroke();
     prevMidX = mx; prevMidY = my; lastX = x; lastY = y;
+    strokeNote = findUp(drawCvs, 'note');
     e.preventDefault(); return;
   }
 }
@@ -526,7 +823,11 @@ function onEnd(e) {
       cvs.style.width = w + 'px'; cvs.style.height = h + 'px';
       cvs.getContext('2d').drawImage(tmp, 0, 0);
     }
+    if (noteResized) markCanvasDirty(resizeNote);
   }
+  if (noteMoved || noteResized) markMetaDirty();
+  if (strokeNote) markCanvasDirty(strokeNote);
+  strokeNote = null; noteMoved = false; noteResized = false;
   dragNote = null; resizeNote = null;
   drawing = false; drawCvs = null; drawCtx = null;
 }
@@ -534,6 +835,15 @@ function onEnd(e) {
 document.addEventListener('touchstart', onStart, false);
 document.addEventListener('touchmove',  onMove,  false);
 document.addEventListener('touchend',   onEnd,   false);
+document.addEventListener('touchcancel', onEnd,  false);
+
+/* Typing in a note */
+workspace.addEventListener('input', function() { markMetaDirty(); }, false);
+
+/* If the device hides the app, start saving right away */
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden && hasUnsaved()) saveNow();
+}, false);
 
 var mouseDown = false;
 document.addEventListener('mousedown', function(e) { mouseDown = true; e.touches = [e]; onStart(e); }, false);
@@ -578,10 +888,27 @@ function restorePrefs(prefs) {
 /* ══════════════════════════════════════════════ */
 var canvasChunkBuffers = {};  /* noteId -> {totalChunks, chunks: []} */
 
+function requestCanvas(nId) {
+  canvasLoadPending[nId] = true;
+  queueMsg({ type: 'loadCanvas', noteId: nId }, 'loadcvs_' + nId, function(ok, reply) {
+    if (!ok || (reply.type !== 'canvasLoaded' && reply.type !== 'canvasChunk')) canvasLoadDone(nId);
+  });
+}
+
+/* The saved drawing is on screen (or failed to load): its note can be saved again */
+function canvasLoadDone(nId) {
+  if (!canvasLoadPending[nId]) return;
+  delete canvasLoadPending[nId];
+  if ((canvasVer[nId] || 0) !== (canvasSavedVer[nId] || 0)) {
+    if (saveWaiters.length) saveNow(); else scheduleSave();
+  }
+}
+
 function handleCanvasMessage(msg) {
   /* Single-message canvas (small enough to fit in one response) */
-  if (msg.type === 'canvasLoaded' && msg.noteId && msg.data) {
-    drawCanvasData(msg.noteId, msg.data);
+  if (msg.type === 'canvasLoaded' && msg.noteId) {
+    if (msg.data) drawCanvasData(msg.noteId, msg.data);
+    else canvasLoadDone(msg.noteId);
     return;
   }
   /* Chunked canvas response */
@@ -604,9 +931,12 @@ function handleCanvasMessage(msg) {
       drawCanvasData(msg.noteId, fullData);
     } else {
       /* Request next missing chunk */
+      var loadId = msg.noteId;
       for (var j = 0; j < buf.totalChunks; j++) {
         if (!buf.chunks[j]) {
-          queueMsg({ type: 'loadCanvasChunk', noteId: msg.noteId, chunkIndex: j }, 'lcc_' + msg.noteId + '_' + j);
+          queueMsg({ type: 'loadCanvasChunk', noteId: loadId, chunkIndex: j }, 'lcc_' + loadId + '_' + j, function(ok, reply) {
+            if (!ok || reply.type !== 'canvasChunk') { delete canvasChunkBuffers[loadId]; canvasLoadDone(loadId); }
+          });
           break;
         }
       }
@@ -615,21 +945,16 @@ function handleCanvasMessage(msg) {
 }
 
 function drawCanvasData(noteId, dataUrl) {
-  var notes = workspace.querySelectorAll('.note');
-  for (var k = 0; k < notes.length; k++) {
-    if (notes[k].getAttribute('data-id') === noteId) {
-      var cvs = notes[k].querySelector('.note-canvas');
-      if (cvs) {
-        var targetCvs = cvs;
-        var img = new Image();
-        img.onload = function() {
-          targetCvs.getContext('2d').drawImage(img, 0, 0, targetCvs.width, targetCvs.height);
-        };
-        img.src = dataUrl;
-      }
-      break;
-    }
-  }
+  var note = findNote(noteId);
+  var cvs = note && note.querySelector('.note-canvas');
+  if (!cvs || !dataUrl) { canvasLoadDone(noteId); return; }
+  var img = new Image();
+  img.onload = function() {
+    cvs.getContext('2d').drawImage(img, 0, 0, cvs.width, cvs.height);
+    canvasLoadDone(noteId);
+  };
+  img.onerror = function() { canvasLoadDone(noteId); };
+  img.src = dataUrl;
 }
 
 /* ══════════════════════════════════════════════ */
@@ -662,16 +987,21 @@ if (typeof Alexa !== 'undefined' && Alexa.create) {
         var noteEls = workspace.querySelectorAll('.note');
         for (var j = 0; j < noteEls.length; j++) {
           var nId = noteEls[j].getAttribute('data-id');
-          if (nId) {
-            queueMsg({ type: 'loadCanvas', noteId: nId }, 'loadcvs_' + nId);
-          }
+          if (nId) requestCanvas(nId);
         }
       }
 
       /* Listen for Lambda responses */
       alexaClient.skill.onMessage(function(msg) {
+        if (!msg) return;
+        /* "Alexa, stop" / "Alexa, cancel" */
+        if (msg.type === 'prepareToClose') { saveAndClose(); return; }
+        onReply(msg);
         handleCanvasMessage(msg);
       });
+
+      /* Changes made while Alexa was starting up */
+      if (hasUnsaved()) scheduleSave();
     })
     .catch(function(err) {});
 }

@@ -1,6 +1,6 @@
 # Quick Stickies — Complete Project Documentation
 
-> **Last Updated:** June 18, 2026  
+> **Last Updated:** September 25, 2026  
 > **Purpose:** Comprehensive handoff document for onboarding a new AI agent or developer.
 
 ---
@@ -17,6 +17,7 @@
 8. [Messaging Protocol](#8-messaging-protocol)
 9. [Data Persistence (S3)](#9-data-persistence-s3)
 10. [Canvas Chunking Protocol](#10-canvas-chunking-protocol)
+    - [10a. Autosave & Closing](#10a-autosave--closing)
 11. [Alert Bell System](#11-alert-bell-system)
 12. [Deployment Guide](#12-deployment-guide)
 13. [Known Issues & Lessons Learned](#13-known-issues--lessons-learned)
@@ -34,7 +35,9 @@
 - Change note colors (5 presets)
 - Undo/redo drawing actions
 - Toggle a "bell" alert visible on the widget icon
-- Manually save all notes (with a spinner overlay)
+- Autosave: only what changed is saved, about a second after each edit (the 💾 button shows the status)
+- Save manually at any time (with a spinner overlay)
+- Say "Alexa, stop" to save everything and then close
 - All data persists across sessions via S3
 
 **Invocation:** "Alexa, open sticky notes" or tapping the widget icon on the Echo Show home screen.
@@ -133,12 +136,12 @@ These constraints were discovered through extensive testing and are **critical**
 | `sendMessage` payload | **16 KB** (16,384 bytes) | Canvas data MUST be chunked if > ~14KB |
 | `HandleMessage` response | **~24 KB** total response | Lambda responses with canvas data must chunk |
 | `HTML.Start` data field | **~24 KB** | Cannot embed canvas data for multiple notes |
-| Message rate | ~1 msg / 200ms min | Queue uses 1.5s gap for safety |
+| Message rate | **2 messages / second** (Amazon docs) | Queue sends one message at a time, waits for the Lambda's reply, and keeps ≥ 550 ms between sends. Throttled sends get `statusCode: 429` in the `sendMessage` callback. |
 
 ### Session
 | Parameter | Value |
 |-----------|-------|
-| Session timeout | 300 seconds (configured in `startWebApp`) |
+| Session timeout | 300 seconds without user interaction (configured in `startWebApp`; 300 is the maximum) — then the app closes |
 | Lambda timeout | 8 seconds (Alexa platform default) |
 
 ### Canvas
@@ -151,7 +154,10 @@ These constraints were discovered through extensive testing and are **critical**
 | Typical PNG size | 10–60 KB (2–5 chunks) |
 
 ### Critical Discovery: Message Flooding
-Alexa's `sendMessage` is fire-and-forget. Sending multiple messages simultaneously **drops packets** silently. All outgoing messages MUST go through a serialized queue with delays between sends.
+Sending multiple messages simultaneously **drops packets** silently. All outgoing messages MUST go through the serialized queue. Since v13 the queue treats the Lambda's reply as the delivery confirmation: each message carries a `seq`, the Lambda echoes it, and a message with no reply within 5 s is sent again (up to 4 attempts).
+
+### Critical Discovery: No Close Event
+The web app gets **no warning** when the user leaves by swiping, pressing Home, saying "Alexa, exit" / "Alexa, go home", or when the idle timeout closes it. Only the skill can close the app on purpose (a response with `shouldEndSession: true`). This is why saving is automatic and why "Alexa, stop" is routed through the web app (see [Autosave & Closing](#10a-autosave--closing)).
 
 ### Critical Discovery: HTML.Start Size Limit
 Embedding all canvas data in the `HTML.Start` directive caused the response to exceed 24KB, which silently stripped data. The fix was loading canvases individually after startup via separate messages.
@@ -184,16 +190,17 @@ MAX_UNDO            // 10 undo steps per note
 ### Message Queue
 
 ```javascript
-msgQueue            // Array of {key, msg} objects
-msgSending          // Boolean: true if a message is in-flight
-saveInProgress      // Boolean: true during manual save
+msgQueue            // Array of {key, msg, onDone, attempts, seqs} waiting to be sent
+inFlight            // The message waiting for the Lambda's reply (or null)
+msgSeq              // Counter stamped on every message as msg.seq
 CHUNK_SIZE          // 12000 chars per chunk
 ```
 
 **Queue behavior:**
 - Messages with the same `key` are **deduplicated** (latest replaces earlier)
-- 1.5s gap between each `sendMessage` call
-- When queue empties during a save, overlay shows "Saved!" for 1.2s
+- One message in flight at a time; the next is sent when the Lambda's reply (same `seq`) arrives, at least 550 ms after the previous send
+- No reply within 5 s, or a 429/error in the `sendMessage` callback → the same message is sent again (max 4 attempts), then `onDone(false)`
+- Replies without `seq` (Lambda older than v13) confirm whatever is in flight
 
 ### Key Functions
 
@@ -207,9 +214,14 @@ CHUNK_SIZE          // 12000 chars per chunk
 | `pickFontSize(sz, el)` | Sets font size for selected note |
 | `pushUndo(noteEl)` | Saves canvas snapshot to undo stack |
 | `doUndo()` / `doRedo()` | Restores canvas from undo/redo stack |
-| `queueMsg(msg, key)` | Adds message to outgoing queue |
-| `drainQueue()` | Processes queue (sends one message, waits 1.5s) |
-| `doSave()` | Manual save: overlay + note metadata + chunked canvas PNGs |
+| `queueMsg(msg, key, onDone)` | Adds message to outgoing queue; `onDone(ok, reply)` runs on reply or final failure |
+| `drainQueue()` / `onReply(msg)` | Sends the next message / confirms the one in flight |
+| `markMetaDirty()` / `markCanvasDirty(noteEl)` | Records a change and schedules an autosave |
+| `runSave()` | One save round: note metadata (if changed) + changed canvases only |
+| `saveNow(cb)` | Save immediately; `cb(ok)` once everything is confirmed saved |
+| `doSave()` | Save button: overlay until the save is confirmed |
+| `saveAndClose()` | "Alexa, stop": save everything, then send `closeApp` |
+| `requestCanvas(id)` / `canvasLoadDone(id)` | Load a saved drawing / mark it loaded (saving that note is blocked until then) |
 | `toggleAlert(checked)` | Sends alert state to Lambda (auto-sends, not manual) |
 | `restorePrefs(prefs)` | Restores toolbar state from saved preferences |
 | `handleCanvasMessage(msg)` | Handles `canvasLoaded` and `canvasChunk` responses |
@@ -258,7 +270,7 @@ CHUNK_SIZE          // 12000 chars per chunk
 2. Restore alert checkbox from `initData.alertOn`
 3. Restore toolbar preferences from `initData.prefs`
 4. If saved notes exist, clear workspace and recreate all notes via `addNote(data)`
-5. For each restored note, queue a `loadCanvas` message to fetch its drawing
+5. For each restored note, `requestCanvas()` queues a `loadCanvas` message to fetch its drawing
 6. Register `onMessage` handler for canvas chunk responses
 7. A default blank note is always created at boot (at bottom of script)
 
@@ -289,11 +301,12 @@ var AWS = require('aws-sdk');          // S3 access
 |---------|---------|--------|
 | `LaunchRequestHandler` | "Alexa, open sticky notes" | Calls `startWebApp()` |
 | `UserEventHandler` | Widget icon tapped | Calls `startWebApp()` |
-| `HtmlMessageHandler` | `Alexa.Presentation.HTML.Message` | Routes by `msg.type` |
+| `HtmlMessageHandler` | `Alexa.Presentation.HTML.Message` | Routes by `msg.type`; every reply goes through `replyToWebApp()` (echoes `seq`) |
+| `StopIntentHandler` | "Alexa, stop" / "cancel" (and `NavigateHomeIntent` if Alexa sends it) | Sends `prepareToClose` to the web app and keeps the session open; the app saves, then sends `closeApp` |
 | `UsagesInstalledHandler` | Widget installed on device | Initializes DataStore (bell off) |
 | `UsagesRemovedHandler` | Widget removed from device | Logs removal |
 | `SessionEndedRequestHandler` | Session ended | Logs reason |
-| `ErrorHandler` | Any unhandled error | Speaks error message |
+| `ErrorHandler` | Any unhandled error | Web app messages get a silent `{type:'error'}` reply; everything else speaks an error message |
 
 ### S3 Persistence Functions
 
@@ -314,16 +327,16 @@ var AWS = require('aws-sdk');          // S3 access
 3. Set `alertState` from prefs
 4. Build `Alexa.Presentation.HTML.Start` directive with:
    - `data`: `{ appName, alertOn, notes, prefs }`
-   - `request.uri`: GitHub Pages URL with cache-bust query param `?v=12`
+   - `request.uri`: GitHub Pages URL with cache-bust query param `?v=13`
    - `configuration.timeoutInSeconds`: 300
 5. Return response
 
 ### Cache Busting
 
-The URL in `startWebApp()` includes `?v=12`. **This must be incremented** whenever `index.html` changes to force the Echo Show to load the latest version. Without this, the device caches the old HTML indefinitely.
+The URL in `startWebApp()` includes `?v=13`. **This must be incremented** whenever `index.html` changes to force the Echo Show to load the latest version. Without this, the device caches the old HTML indefinitely.
 
 ```javascript
-uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=12'
+uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=13'
 ```
 
 ---
@@ -349,29 +362,34 @@ uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=12'
 
 ## 8. Messaging Protocol
 
+Every web app → Lambda message carries `seq` (a counter). Every Lambda reply to it echoes the same `seq`, so the web app knows which message was confirmed.
+
 ### Web App → Lambda Messages
 
 | `msg.type` | Payload | Purpose |
 |------------|---------|---------|
 | `saveNotes` | `{ notes: [...], prefs: {...} }` | Save note metadata + user prefs |
-| `saveCanvasChunk` | `{ noteId, index, total, data }` | Save one chunk of PNG canvas data |
+| `saveCanvasChunk` | `{ noteId, saveId, index, total, length, data }` | Save one chunk of PNG canvas data (`saveId` and `length` since v13) |
 | `saveCanvas` | `{ noteId, data }` | Save small canvas in one message (legacy, still handled) |
 | `loadCanvas` | `{ noteId }` | Request canvas data for a note |
 | `loadCanvasChunk` | `{ noteId, chunkIndex }` | Request a specific chunk of canvas data |
 | `setAlert` | `{ value: boolean }` | Toggle bell alert |
 | `savePrefs` | `{ prefs: {...} }` | Save preferences only |
+| `closeApp` | `{}` | Everything is saved: Lambda ends the session (closes the app) |
 
 ### Lambda → Web App Messages
 
 | `msg.type` | Payload | Purpose |
 |------------|---------|---------|
-| `saveResult` | `{ status, count }` | Notes saved confirmation |
-| `chunkSaved` | `{ noteId, index }` | Canvas chunk saved confirmation |
-| `canvasSaved` | `{ noteId }` | Full canvas saved confirmation |
+| `saveResult` | `{ status, count }` | Notes saved confirmation (`status: 'error'` if S3 failed) |
+| `chunkSaved` | `{ noteId, index, ok }` | Canvas chunk saved confirmation (`ok: false` if S3 failed or the joined data was incomplete) |
+| `canvasSaved` | `{ noteId, ok }` | Full canvas saved confirmation |
 | `canvasLoaded` | `{ noteId, data }` | Complete canvas data (fits in one message) |
 | `canvasChunk` | `{ noteId, chunkIndex, totalChunks, data }` | One chunk of canvas data |
 | `prefsSaved` | `{}` | Preferences saved confirmation |
 | `{status, code, bell}` | Alert status | Alert toggle result |
+| `prepareToClose` | `{}` | Sent for "Alexa, stop" / "cancel" (not a reply; has no `seq`) |
+| `ignored` / `error` | `{}` | Unknown message type / handler crashed — keeps the web app's queue moving |
 
 ---
 
@@ -393,11 +411,11 @@ uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=12'
 │       └── <noteId>               # Assembled binary (PNG/JPEG)
 │           ContentType: image/png
 │
-├── canvas_chunks/
+├── canvas_chunks/                 # Temporary; deleted after the canvas is assembled
 │   └── <safeUserId>/
-│       ├── <noteId>_c0            # Chunk 0 (text/plain, base64 fragment)
-│       ├── <noteId>_c1            # Chunk 1
-│       └── <noteId>_cN            # Chunk N
+│       ├── <noteId>_<saveId>_c0   # Chunk 0 (text/plain, base64 fragment)
+│       ├── <noteId>_<saveId>_c1   # Chunk 1
+│       └── <noteId>_<saveId>_cN   # Chunk N  (no <saveId> for pre-v13 web apps)
 │
 └── prefs/
     └── <safeUserId>.json          # User preferences
@@ -462,12 +480,16 @@ Web App                           Lambda                          S3
   │◀─── chunkSaved {index:2}  ─────│                              │
 ```
 
+The web app sends the next chunk only after the previous `chunkSaved` reply arrives.
+
 **When the last chunk arrives** (`index === total - 1`), Lambda:
-1. Reads ALL chunks from `canvas_chunks/`
+1. Reads ALL chunks of this `saveId` from `canvas_chunks/`
 2. Concatenates the text into a full data URL string
-3. Strips the `data:image/png;base64,` prefix
-4. Decodes base64 to binary
-5. Saves the binary to `canvas/<userId>/<noteId>` with correct `ContentType`
+3. Checks the result is exactly `length` characters — if not, replies `ok: false` and leaves the stored drawing untouched
+4. Strips the `data:image/png;base64,` prefix
+5. Decodes base64 to binary
+6. Saves the binary to `canvas/<userId>/<noteId>` with correct `ContentType`
+7. Deletes this save's chunks (best effort)
 
 ### Load Flow (Web App ← Lambda ← S3)
 
@@ -501,6 +523,34 @@ Web App                           Lambda                          S3
 ```
 
 **Note:** Lambda re-reads the full S3 object for each `loadCanvasChunk` request (stateless). This is inefficient but simple and reliable.
+
+---
+
+## 10a. Autosave & Closing
+
+### What gets saved, and when
+- Every change bumps a version number: `markCanvasDirty(note)` after a stroke, resize, undo or redo; `markMetaDirty()` after adding, deleting, moving, recoloring a note, typing, or changing pen/size/font.
+- An autosave round starts **1 s after the last change** (at most 10 s after the first one while changes keep coming), and not in the middle of a stroke.
+- A round sends the note metadata if it changed, then **only the canvases that changed**, as full-resolution PNGs. A version counts as saved only when the Lambda confirms it; changes made during a round are picked up by the next one.
+- A note whose saved drawing is still loading is not uploaded until the load finishes. Otherwise the upload would replace the saved drawing with just the new strokes.
+- A failed round (no reply after retries, or `ok: false`) shows **⚠ Save** and retries after 10 s.
+
+### Save button states
+| Label | Color | Meaning |
+|-------|-------|---------|
+| ✓ Saved | green | Everything is saved — safe to close |
+| 💾 Save | orange | Unsaved changes (autosave will start shortly) |
+| Saving… | blue | Upload in progress |
+| ⚠ Save | orange | Last save failed; retrying |
+
+Tapping the button saves immediately and shows the overlay until the save is confirmed.
+
+### Closing
+| How the user closes | Saved before closing? |
+|---------------------|-----------------------|
+| "Alexa, stop" / "Alexa, cancel" | **Yes.** Lambda sends `prepareToClose`; the app shows "Saving before closing… N%", saves everything, then sends `closeApp`; the Lambda ends the session. If saving fails, the user can **Try again** or **Close without saving**. |
+| Swipe away, Home, "Alexa, exit", "Alexa, go home" | Can't be intercepted (no close event). Only what autosave already finished is kept. |
+| Idle timeout (300 s without interaction) | Yes in practice — autosave runs long before the timeout. |
 
 ---
 
@@ -580,9 +630,11 @@ Content-Type: application/json
 When `index.html` changes, the cache-bust version in `lambda/index.js` must be incremented:
 ```javascript
 // In startWebApp(), update the version:
-uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=13'  // was v=12
+uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=14'  // was v=13
 ```
 Then redeploy Lambda.
+
+> **v13 (autosave):** the web app works with the old Lambda (autosave, Save button), but "Alexa, stop" saving before closing needs the v13 Lambda deployed.
 
 ### GitHub Pages Settings
 - **Source:** Deploy from branch → `main` / `/ (root)`
@@ -610,6 +662,8 @@ The Lambda needs an S3 bucket. Set the bucket name in the Lambda environment var
 | 8 | **CSS `border` causes layout shifts** | Using `border` for note selection changed the element's total size, pushing canvas content outside the note. Use `inset box-shadow` instead. |
 | 9 | **GitHub Pages requires public repo** | Private repos cannot use free GitHub Pages. If the repo is made private, the widget gets a 404. |
 | 10 | **Prefs save must be non-blocking** | If prefs save fails in `saveNotes` handler, the note save was also failing. Prefs save is now fire-and-forget. |
+| 11 | **No close event** | Swipe/Home/"Alexa, exit" close the app without warning. Saves must happen continuously (autosave), not at close time. |
+| 12 | **A reply is the only real confirmation** | `sendMessage` gives no delivery guarantee. The queue waits for the Lambda's reply (matched by `seq`) and re-sends when none arrives. |
 
 ### 🟡 Historical Issues (Resolved)
 
@@ -638,11 +692,16 @@ Available font sizes: 14 (S), 18 (M), 24 (L)
 MAX_UNDO: 10 snapshots per note
 
 // Message queue
-Queue delay: 1500 ms between messages
+SEND_GAP_MS: 550 ms minimum between sends (platform limit: 2/s)
+REPLY_TIMEOUT_MS: 5000 ms before a message is sent again
+MAX_SEND_ATTEMPTS: 4
 CHUNK_SIZE: 12000 chars per save chunk
+
+// Autosave
+AUTOSAVE_DELAY_MS: 1000 ms after the last change
+AUTOSAVE_MAX_WAIT_MS: 10000 ms while changes keep coming
+SAVE_RETRY_MS: 10000 ms after a failed save
 Save overlay auto-hide delay: 1200 ms after "Saved!"
-Canvas save debounce: 2000 ms (legacy, not used in manual save)
-Note metadata save debounce: 800 ms (legacy, not used in manual save)
 ```
 
 ### lambda/index.js Constants
@@ -651,7 +710,7 @@ Note metadata save debounce: 800 ms (legacy, not used in manual save)
 S3_BUCKET: process.env.S3_PERSISTENCE_BUCKET
 Load chunk size: 14000 chars
 Session timeout: 300 seconds
-Cache bust version: v=12
+Cache bust version: v=13
 ```
 
 ### S3 Keys
@@ -659,7 +718,7 @@ Cache bust version: v=12
 ```
 notes/<safeUserId>.json           # Note metadata
 canvas/<safeUserId>/<noteId>      # Assembled canvas binary
-canvas_chunks/<safeUserId>/<noteId>_c<N>  # Canvas chunk (during save)
+canvas_chunks/<safeUserId>/<noteId>_<saveId>_c<N>  # Canvas chunk (during save, then deleted)
 prefs/<safeUserId>.json           # User preferences + alertOn
 ```
 
@@ -705,15 +764,23 @@ prefs/<safeUserId>.json           # User preferences + alertOn
             └──────────────┬──────────────┘
                            │
             ┌──────────────▼──────────────┐
-            │  User clicks "💾 Save"      │
-            │  1. Show overlay + spinner  │
-            │  2. Queue saveNotes (meta)  │
-            │  3. Queue canvas chunks × N │
-            │  4. Queue drains            │
-            │  5. "Saved!" → hide overlay │
+            │  Autosave (1 s after edits) │
+            │  1. saveNotes if changed    │
+            │  2. Chunks of CHANGED       │
+            │     canvases, each one      │
+            │     confirmed by the Lambda │
+            │  3. Button: "✓ Saved"       │
+            └──────────────┬──────────────┘
+                           │
+            ┌──────────────▼──────────────┐
+            │  "Alexa, stop"              │
+            │  1. Lambda → prepareToClose │
+            │  2. App saves everything    │
+            │  3. App → closeApp          │
+            │  4. Lambda ends session     │
             └─────────────────────────────┘
 ```
 
 ---
 
-*This document was generated from the codebase as of commit `907cb27` (June 18, 2026).*
+*This document was generated from the codebase as of commit `907cb27` (June 18, 2026) and updated for autosave (v13, September 25, 2026).*
