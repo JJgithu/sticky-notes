@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Blank Widget Test</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <script src="https://cdn.amazon.com/alexa-web-app-api/2.1.0/alexa-web-app-api.min.js"></script>
+    <style>
+        body {
+            background: #202020;
+            color: #00ff00;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: sans-serif;
+            font-size: 30px;
+        }
+    </style>
+</head>
+
+<body>
+    <p id="msg">Initializing...</p>
+    <script>
+        setTimeout(() => {
+            document.getElementById('msg').innerText = "Hello World! Widget successfully launched.";
+        }, 1000);
+        
+        try {
+            alexa.create().then(() => {
+                console.log("Alexa Web API initialized.");
+                document.getElementById('msg').innerText += "\n[Alexa App API Ready]";
+            });
+        } catch (e) {
+            console.error("Alexa init error: " + e);
+        }
+    </script>
+</body>
+
+</html>
