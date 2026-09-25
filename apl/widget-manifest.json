@@ -1,36 +1,25 @@
 {
-    "manifest": {
-        "id": "Sticky_Notes_v4",
-        "version": "1.0.0",
-        "presentationDefinitions": [
-            {
-                "url": "presentations/default.tpl"
-            }
-        ],
-        "appliesTo": "${viewport.mode == 'HUB' && location == 'FAVORITE'}"
-    },
-    "packageVersion": "1.0",
-    "packageType": "APL_PACKAGE",
-    "publishingInformation": {
-        "schemaVersion": "1.0",
-        "locales": {
-            "en-US": [
-                {
-                    "targetViewport": "WIDGET_M",
-                    "metadata": {
-                        "name": "Widget name",
-                        "description": "Widget description",
-                        "keywords": [
-                            "keyword1",
-                            "keyword2"
-                        ],
-                        "iconUri": "https://d3ozx4qyxcxwzd.cloudfront.net/default_icon.png",
-                        "previews": [
-                            "https://d3ozx4qyxcxwzd.cloudfront.net/default_preview.png"
-                        ]
+    "widgets": [
+        {
+            "id": "StickyNotesWidget",
+            "version": "1.0.0",
+            "name": "Sticky Notes v4",
+            "description": "Quick access to your sticky notes.",
+            "manifest": {
+                "locales": {
+                    "en-US": {
+                        "name": "Sticky Notes New",
+                        "description": "Glanceable sticky notes on your home screen."
                     }
+                },
+                "background": {
+                    "color": "#121212"
+                },
+                "preview": {
+                    "type": "image",
+                    "url": "https://dummyimage.com/600x400/000/fff&text=Sticky+Notes+Widget"
                 }
-            ]
+            }
         }
-    }
+    ]
 }
