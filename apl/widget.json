@@ -27,7 +27,9 @@
         }
     ],
     "mainTemplate": {
-        "parameters": ["payload"],
+        "parameters": [
+            "payload"
+        ],
         "items": [
             {
                 "type": "TouchWrapper",
@@ -36,7 +38,9 @@
                 "onPress": [
                     {
                         "type": "SendEvent",
-                        "arguments": ["OpenWidget"],
+                        "arguments": [
+                            "OpenWidget"
+                        ],
                         "flags": {
                             "interactionMode": "STANDARD"
                         }
