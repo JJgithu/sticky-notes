@@ -8,8 +8,8 @@ var S3_BUCKET = process.env.S3_PERSISTENCE_BUCKET || '';
 // ══════════════════════════════════════════════════════════════
 // !! FILL THESE IN from Developer Console → Build → Permissions
 // ══════════════════════════════════════════════════════════════
-var SKILL_CLIENT_ID     = process.env.SKILL_CLIENT_ID || 'PASTE_IN_ALEXA_CONSOLE';
-var SKILL_CLIENT_SECRET = process.env.SKILL_CLIENT_SECRET || 'PASTE_IN_ALEXA_CONSOLE';
+var SKILL_CLIENT_ID     = process.env.SKILL_CLIENT_ID || '';
+var SKILL_CLIENT_SECRET = process.env.SKILL_CLIENT_SECRET || '';
 
 // ── Logging ──
 var RequestLogInterceptor = {
