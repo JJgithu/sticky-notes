@@ -38,9 +38,10 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 .tool-btn.sel{border-color:#fff;color:#fff;background:#0078D7}
 .undo-btn{padding:5px 10px;margin:0 2px;border:none;border-radius:4px;color:#ccc;font-size:16px;cursor:pointer;background:#2a2a4a}
 .undo-btn:active{background:#0078D7;color:#fff}
-.alert-wrap{margin-left:auto;display:flex;align-items:center;color:#fff;font-size:16px;cursor:pointer;gap:4px}
+.alert-wrap{display:flex;align-items:center;color:#fff;font-size:16px;cursor:pointer;gap:4px}
 .alert-wrap input{margin-right:4px;width:20px;height:20px;cursor:pointer}
 .lbl{color:#999;font-size:11px;margin-right:4px}
+.push-right{margin-left:auto}
 
 /* Save overlay */
 #saveOverlay{
@@ -104,6 +105,9 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
 <body>
 
 <div id="toolbar">
+  <button class="undo-btn" onclick="doUndo()" title="Undo">↩</button>
+  <button class="undo-btn" onclick="doRedo()" title="Redo">↪</button>
+  <div class="sep"></div>
   <span class="title">Quick Stickies</span>
   <button class="tbtn tbtn-add" onclick="newNote()">+ Note</button>
   <button class="tbtn tbtn-save" id="btn-save" onclick="doSave()">✓ Saved</button>
@@ -118,8 +122,7 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
   <span class="pdot" data-pc="#3498db" style="background:#3498db" onclick="pickPen(this)"></span>
   <span class="pdot" data-pc="#f39c12" style="background:#f39c12" onclick="pickPen(this)"></span>
   <span class="pdot" data-pc="#ffffff" style="background:#fff" onclick="pickPen(this)"></span>
-  <div class="sep"></div>
-  <span class="lbl">Size:</span>
+  <span class="lbl push-right">Size:</span>
   <button class="tool-btn" id="sz-thin" onclick="pickSize(2,this)">Thin</button>
   <button class="tool-btn sel" id="sz-med" onclick="pickSize(5,this)">Med</button>
   <button class="tool-btn" id="sz-thick" onclick="pickSize(10,this)">Thick</button>
@@ -129,8 +132,6 @@ body{background:#1a1a2e;font-family:sans-serif;touch-action:none;-webkit-user-se
   <button class="tool-btn sel" id="fs-m" onclick="pickFontSize(18,this)">M</button>
   <button class="tool-btn" id="fs-l" onclick="pickFontSize(24,this)">L</button>
   <div class="sep"></div>
-  <button class="undo-btn" onclick="doUndo()" title="Undo">↩</button>
-  <button class="undo-btn" onclick="doRedo()" title="Redo">↪</button>
   <label class="alert-wrap"><input type="checkbox" id="alertChk" onchange="toggleAlert(this.checked)"> ALERT 🔔</label>
 </div>
 
@@ -279,7 +280,11 @@ function doUndo() {
   var noteEl = selectedNoteEl;
   ctx.clearRect(0, 0, cvs.width, cvs.height);
   var img = new Image();
-  img.onload = function() { ctx.drawImage(img, 0, 0, cvs.width, cvs.height); markCanvasDirty(noteEl); };
+  img.onload = function() {
+    ctx.globalCompositeOperation = 'source-over';  /* may still be in eraser mode */
+    ctx.drawImage(img, 0, 0, cvs.width, cvs.height);
+    markCanvasDirty(noteEl);
+  };
   img.src = dataUrl;
 }
 
@@ -295,7 +300,11 @@ function doRedo() {
   var noteEl = selectedNoteEl;
   ctx.clearRect(0, 0, cvs.width, cvs.height);
   var img = new Image();
-  img.onload = function() { ctx.drawImage(img, 0, 0, cvs.width, cvs.height); markCanvasDirty(noteEl); };
+  img.onload = function() {
+    ctx.globalCompositeOperation = 'source-over';  /* may still be in eraser mode */
+    ctx.drawImage(img, 0, 0, cvs.width, cvs.height);
+    markCanvasDirty(noteEl);
+  };
   img.src = dataUrl;
 }
 
@@ -444,12 +453,29 @@ function finishInFlight(ok, reply) {
   }
 }
 
-/* A reply from the Lambda confirms the message in flight */
+/* A reply from the Lambda confirms the message in flight. Returns false for
+   late replies to earlier messages, which must be ignored. */
 function onReply(reply) {
-  if (!inFlight) return;
-  /* Ignore late replies to earlier messages (older Lambdas send no seq) */
-  if (reply.seq !== undefined && inFlight.seqs.indexOf(reply.seq) === -1) return;
+  if (!inFlight) return false;
+  if (reply.seq !== undefined) {
+    if (inFlight.seqs.indexOf(reply.seq) === -1) return false;
+  } else if (!replyMatches(inFlight.msg, reply)) {
+    return false;
+  }
   finishInFlight(true, reply);
+  return true;
+}
+
+/* Lambdas older than v13 send no seq: match the reply to the message instead */
+function replyMatches(msg, reply) {
+  switch (msg.type) {
+    case 'saveNotes': return reply.type === 'saveResult';
+    case 'saveCanvasChunk': return reply.type === 'chunkSaved' && reply.noteId === msg.noteId && reply.index === msg.index;
+    case 'loadCanvas': return (reply.type === 'canvasLoaded' || reply.type === 'canvasChunk') && reply.noteId === msg.noteId;
+    case 'loadCanvasChunk': return reply.type === 'canvasChunk' && reply.noteId === msg.noteId && reply.chunkIndex === msg.chunkIndex;
+    case 'setAlert': return reply.type === undefined && reply.status !== undefined;
+  }
+  return true;
 }
 
 /* ══════════════════════════════════════════════ */
@@ -465,7 +491,8 @@ var SAVE_RETRY_MS = 10000;         /* after a failed save */
 
 var metaVer = 0, metaSavedVer = 0;        /* note list, positions, text, colors, prefs */
 var canvasVer = {}, canvasSavedVer = {};  /* noteId -> drawing version */
-var canvasLoadPending = {};               /* noteId -> saved drawing still loading */
+var canvasLoadPending = {};               /* noteId -> saved drawing still loading (attempt no.) */
+var canvasLoadFailed = {};                /* noteId -> saved drawing could not be loaded */
 var saveRunning = false;
 var saveFailed = false;
 var saveTimer = null;
@@ -509,13 +536,27 @@ function hasUnsaved() {
   return metaVer !== metaSavedVer || dirtyCanvasIds().length > 0;
 }
 
-/* A drawing whose saved version is still loading must wait, otherwise the
-   upload would replace the saved drawing with only the new strokes */
+/* A drawing whose saved version is still loading (or failed to load) must
+   wait, otherwise the upload would replace the saved drawing with only the
+   new strokes */
+function canvasBlocked(nId) {
+  return !!(canvasLoadPending[nId] || canvasLoadFailed[nId]);
+}
+
 function canSaveNow() {
   if (metaVer !== metaSavedVer) return true;
   var ids = dirtyCanvasIds();
   for (var i = 0; i < ids.length; i++) {
-    if (!canvasLoadPending[ids[i]]) return true;
+    if (!canvasBlocked(ids[i])) return true;
+  }
+  return false;
+}
+
+/* Unsaved drawings that can't be saved because their saved version failed to load */
+function blockedByFailedLoad() {
+  var ids = dirtyCanvasIds();
+  for (var i = 0; i < ids.length; i++) {
+    if (canvasLoadFailed[ids[i]]) return true;
   }
   return false;
 }
@@ -566,7 +607,7 @@ function runSave() {
   }
   var ids = dirtyCanvasIds();
   for (var i = 0; i < ids.length; i++) {
-    if (canvasLoadPending[ids[i]]) continue;
+    if (canvasBlocked(ids[i])) continue;
     var dataUrl = findNote(ids[i]).querySelector('.note-canvas').toDataURL('image/png');
     var total = Math.ceil(dataUrl.length / CHUNK_SIZE);
     jobs.push({ kind: 'canvas', id: ids[i], ver: canvasVer[ids[i]], dataUrl: dataUrl, total: total,
@@ -633,9 +674,20 @@ function settleSave() {
   } else if (canSaveNow()) {
     if (saveWaiters.length) runSave();
     else if (!saveTimer) scheduleSave();
+  } else if (!anyDirtyLoadPending()) {
+    /* Only drawings that failed to load are left: they can't be saved */
+    resolveSaveWaiters(false);
   }
   /* otherwise a drawing is still loading; canvasLoadDone() resumes */
   updateSaveStatus();
+}
+
+function anyDirtyLoadPending() {
+  var ids = dirtyCanvasIds();
+  for (var i = 0; i < ids.length; i++) {
+    if (canvasLoadPending[ids[i]]) return true;
+  }
+  return false;
 }
 
 function resolveSaveWaiters(ok) {
@@ -658,7 +710,7 @@ function updateSaveStatus() {
     btn.textContent = 'Saving\u2026';
   } else if (hasUnsaved()) {
     btn.className = 'tbtn tbtn-save unsaved';
-    btn.textContent = saveFailed ? '⚠ Save' : '💾 Save';
+    btn.textContent = (saveFailed || blockedByFailedLoad()) ? '⚠ Save' : '💾 Save';
   } else {
     btn.className = 'tbtn tbtn-save';
     btn.textContent = '✓ Saved';
@@ -679,6 +731,7 @@ function hideOverlay() {
 /* ── Save button ── */
 function doSave() {
   if (!canSend() || closing) return;
+  retryFailedLoads();
   showOverlay('Saving notes...');
   saveNow(function(ok) {
     if (closing) return;
@@ -691,6 +744,8 @@ function doSave() {
 function saveAndClose() {
   if (closing || !canSend()) return;
   closing = true;
+  /* Finish a stroke/drag in progress so all of it is saved */
+  if (drawing || dragNote || resizeNote) onEnd();
   showOverlay('Saving before closing...');
   saveNow(function(ok) {
     if (!ok) {
@@ -706,7 +761,15 @@ function saveAndClose() {
 
 function retryClose() {
   closing = false;
+  retryFailedLoads();
   saveAndClose();
+}
+
+/* "Alexa, stop" again while the save-failed choices are showing = try again */
+function onPrepareToClose() {
+  queueMsg({ type: 'closing' });  /* tells the Lambda this page is handling it */
+  if (closing && document.getElementById('saveActions').className === 'show') retryClose();
+  else saveAndClose();
 }
 
 function closeWithoutSaving() {
@@ -731,6 +794,8 @@ function onStart(e) {
   if (inToolbar(el)) return;
   var t = e.touches ? e.touches[0] : e;
   var note = findUp(el, 'note');
+  /* Another finger/palm lands mid-stroke: record the stroke's note now */
+  if (strokeNote) { markCanvasDirty(strokeNote); strokeNote = null; }
 
   if (!note) { selectNote(null); return; }
 
@@ -888,14 +953,43 @@ function restorePrefs(prefs) {
 /* ══════════════════════════════════════════════ */
 var canvasChunkBuffers = {};  /* noteId -> {totalChunks, chunks: []} */
 
-function requestCanvas(nId) {
-  canvasLoadPending[nId] = true;
+var LOAD_ATTEMPTS = 3;
+var LOAD_RETRY_MS = 3000;
+
+function requestCanvas(nId, attempt) {
+  attempt = attempt || 1;
+  canvasLoadPending[nId] = attempt;
+  delete canvasLoadFailed[nId];
+  delete canvasChunkBuffers[nId];
   queueMsg({ type: 'loadCanvas', noteId: nId }, 'loadcvs_' + nId, function(ok, reply) {
-    if (!ok || (reply.type !== 'canvasLoaded' && reply.type !== 'canvasChunk')) canvasLoadDone(nId);
+    if (!ok || reply.type === 'error' || reply.type === 'ignored') canvasLoadError(nId);
   });
 }
 
-/* The saved drawing is on screen (or failed to load): its note can be saved again */
+/* Loading failed: try again a few times, then block saving this note */
+function canvasLoadError(nId) {
+  var attempt = canvasLoadPending[nId];
+  if (!(attempt > 0)) return;
+  delete canvasChunkBuffers[nId];
+  if (attempt < LOAD_ATTEMPTS) {
+    canvasLoadPending[nId] = -attempt;  /* waiting to retry */
+    setTimeout(function() {
+      if (canvasLoadPending[nId] === -attempt && findNote(nId)) requestCanvas(nId, attempt + 1);
+    }, LOAD_RETRY_MS);
+    return;
+  }
+  delete canvasLoadPending[nId];
+  canvasLoadFailed[nId] = true;
+  settleSave();
+}
+
+function retryFailedLoads() {
+  for (var nId in canvasLoadFailed) {
+    if (canvasLoadFailed.hasOwnProperty(nId) && findNote(nId)) requestCanvas(nId);
+  }
+}
+
+/* The saved drawing is on screen (or there is none): its note can be saved again */
 function canvasLoadDone(nId) {
   if (!canvasLoadPending[nId]) return;
   delete canvasLoadPending[nId];
@@ -907,13 +1001,19 @@ function canvasLoadDone(nId) {
 function handleCanvasMessage(msg) {
   /* Single-message canvas (small enough to fit in one response) */
   if (msg.type === 'canvasLoaded' && msg.noteId) {
-    if (msg.data) drawCanvasData(msg.noteId, msg.data);
+    if (msg.error) canvasLoadError(msg.noteId);
+    else if (msg.data) drawCanvasData(msg.noteId, msg.data);
     else canvasLoadDone(msg.noteId);
     return;
   }
   /* Chunked canvas response */
   if (msg.type === 'canvasChunk' && msg.noteId) {
     var buf = canvasChunkBuffers[msg.noteId];
+    /* Error, or the saved drawing changed while loading: start over */
+    if (msg.error || !msg.totalChunks || !msg.data || (buf && buf.totalChunks !== msg.totalChunks)) {
+      canvasLoadError(msg.noteId);
+      return;
+    }
     if (!buf) {
       buf = { totalChunks: msg.totalChunks, chunks: [] };
       canvasChunkBuffers[msg.noteId] = buf;
@@ -935,7 +1035,7 @@ function handleCanvasMessage(msg) {
       for (var j = 0; j < buf.totalChunks; j++) {
         if (!buf.chunks[j]) {
           queueMsg({ type: 'loadCanvasChunk', noteId: loadId, chunkIndex: j }, 'lcc_' + loadId + '_' + j, function(ok, reply) {
-            if (!ok || reply.type !== 'canvasChunk') { delete canvasChunkBuffers[loadId]; canvasLoadDone(loadId); }
+            if (!ok || reply.type === 'error' || reply.type === 'ignored') canvasLoadError(loadId);
           });
           break;
         }
@@ -950,10 +1050,12 @@ function drawCanvasData(noteId, dataUrl) {
   if (!cvs || !dataUrl) { canvasLoadDone(noteId); return; }
   var img = new Image();
   img.onload = function() {
-    cvs.getContext('2d').drawImage(img, 0, 0, cvs.width, cvs.height);
+    var ctx = cvs.getContext('2d');
+    ctx.globalCompositeOperation = 'source-over';  /* may still be in eraser mode */
+    ctx.drawImage(img, 0, 0, cvs.width, cvs.height);
     canvasLoadDone(noteId);
   };
-  img.onerror = function() { canvasLoadDone(noteId); };
+  img.onerror = function() { canvasLoadError(noteId); };
   img.src = dataUrl;
 }
 
@@ -995,9 +1097,8 @@ if (typeof Alexa !== 'undefined' && Alexa.create) {
       alexaClient.skill.onMessage(function(msg) {
         if (!msg) return;
         /* "Alexa, stop" / "Alexa, cancel" */
-        if (msg.type === 'prepareToClose') { saveAndClose(); return; }
-        onReply(msg);
-        handleCanvasMessage(msg);
+        if (msg.type === 'prepareToClose') { onPrepareToClose(); return; }
+        if (onReply(msg)) handleCanvasMessage(msg);
       });
 
       /* Changes made while Alexa was starting up */

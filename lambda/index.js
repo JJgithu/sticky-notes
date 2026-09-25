@@ -66,6 +66,12 @@ function safeUserId(userId) {
     return userId.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
+// The object doesn't exist (S3 answers 403 instead of 404 without list permission)
+function isMissing(err) {
+    return !!err && (err.code === 'NoSuchKey' || err.code === 'NotFound' || err.code === 'AccessDenied' ||
+        err.statusCode === 404 || err.statusCode === 403);
+}
+
 function saveCanvasToS3(userId, noteId, base64Data) {
     if (!S3_BUCKET || !base64Data) return Promise.resolve();
     // Detect actual content type from data URI
@@ -227,6 +233,19 @@ function updateDataStore(deviceId, showBell) {
 // ── Track alert state ──
 var alertState = false;
 
+// ── Session bookkeeping for "Alexa, stop" ──
+// Records when the web app last sent a message / when closing was requested.
+function markSession(handlerInput, key) {
+    try {
+        var attrs = handlerInput.attributesManager.getSessionAttributes();
+        attrs[key] = Date.now();
+        handlerInput.attributesManager.setSessionAttributes(attrs);
+        return attrs;
+    } catch (e) {
+        return {};  /* request without a session */
+    }
+}
+
 // ── Reply to the web app ──
 // Echoes the message's seq so the web app knows which message was answered.
 function replyToWebApp(handlerInput, message) {
@@ -319,6 +338,7 @@ var HtmlMessageHandler = {
     handle: function(handlerInput) {
         var msg = handlerInput.requestEnvelope.request.message || {};
         console.log('HTML Message type: ' + msg.type);
+        markSession(handlerInput, 'lastWebMsgAt');
 
         // ── Save notes ──
         if (msg.type === 'saveNotes') {
@@ -415,7 +435,8 @@ var HtmlMessageHandler = {
             var safe = safeUserId(userId);
             var keyBase = 'canvas/' + safe + '/' + msg.noteId;
             return s3.getObject({ Bucket: S3_BUCKET, Key: keyBase }).promise()
-                .catch(function() {
+                .catch(function(err) {
+                    if (!isMissing(err)) throw err;
                     return s3.getObject({ Bucket: S3_BUCKET, Key: keyBase + '.png' }).promise();
                 })
                 .then(function(data) {
@@ -431,8 +452,14 @@ var HtmlMessageHandler = {
                         return replyToWebApp(handlerInput, { type: 'canvasChunk', noteId: msg.noteId, chunkIndex: 0, totalChunks: totalChunks, data: chunk });
                     }
                 })
-                .catch(function() {
-                    return replyToWebApp(handlerInput, { type: 'canvasLoaded', noteId: msg.noteId, data: null });
+                .catch(function(err) {
+                    /* No drawing saved yet, or a real error (the web app retries, and
+                       won't save over a drawing it couldn't load) */
+                    if (isMissing(err)) {
+                        return replyToWebApp(handlerInput, { type: 'canvasLoaded', noteId: msg.noteId, data: null });
+                    }
+                    console.log('Canvas load error: ' + err.message);
+                    return replyToWebApp(handlerInput, { type: 'canvasLoaded', noteId: msg.noteId, data: null, error: true });
                 });
         }
 
@@ -442,7 +469,8 @@ var HtmlMessageHandler = {
             var safe = safeUserId(userId);
             var keyBase = 'canvas/' + safe + '/' + msg.noteId;
             return s3.getObject({ Bucket: S3_BUCKET, Key: keyBase }).promise()
-                .catch(function() {
+                .catch(function(err) {
+                    if (!isMissing(err)) throw err;
                     return s3.getObject({ Bucket: S3_BUCKET, Key: keyBase + '.png' }).promise();
                 })
                 .then(function(data) {
@@ -454,8 +482,9 @@ var HtmlMessageHandler = {
                     var chunk = fullData.substr(start, chunkSize);
                     return replyToWebApp(handlerInput, { type: 'canvasChunk', noteId: msg.noteId, chunkIndex: msg.chunkIndex, totalChunks: totalChunks, data: chunk });
                 })
-                .catch(function() {
-                    return replyToWebApp(handlerInput, { type: 'canvasChunk', noteId: msg.noteId, chunkIndex: msg.chunkIndex, totalChunks: 0, data: '' });
+                .catch(function(err) {
+                    console.log('Canvas chunk load error: ' + err.message);
+                    return replyToWebApp(handlerInput, { type: 'canvasChunk', noteId: msg.noteId, chunkIndex: msg.chunkIndex, totalChunks: 0, data: '', error: true });
                 });
         }
 
@@ -491,6 +520,11 @@ var HtmlMessageHandler = {
             });
         }
 
+        // ── Web app acknowledges "Alexa, stop" (it saves, then sends closeApp) ──
+        if (msg.type === 'closing') {
+            return replyToWebApp(handlerInput, { type: 'closingAck' });
+        }
+
         // ── Close the app (sent by the web app once everything is saved) ──
         if (msg.type === 'closeApp') {
             console.log('Web app saved everything → closing');
@@ -506,6 +540,10 @@ var HtmlMessageHandler = {
 
 // ── "Alexa, stop" / "Alexa, cancel": save before closing ──
 // The web app saves anything unsaved, then sends closeApp to end the session.
+// If the user asks again and the web app has sent nothing since the first
+// request (old cached page, script error), close without waiting for it.
+var UNRESPONSIVE_AFTER_MS = 5000;
+
 var StopIntentHandler = {
     canHandle: function(handlerInput) {
         if (Alexa.getRequestType(handlerInput.requestEnvelope) !== 'IntentRequest') return false;
@@ -517,6 +555,13 @@ var StopIntentHandler = {
         if (!htmlSupported) {
             return handlerInput.responseBuilder.withShouldEndSession(true).getResponse();
         }
+        var attrs = handlerInput.attributesManager.getSessionAttributes();
+        var asked = attrs.closeRequestedAt;
+        if (asked && Date.now() - asked > UNRESPONSIVE_AFTER_MS && !(attrs.lastWebMsgAt > asked)) {
+            console.log('Web app did not respond to prepareToClose → closing');
+            return handlerInput.responseBuilder.withShouldEndSession(true).getResponse();
+        }
+        markSession(handlerInput, 'closeRequestedAt');
         console.log('Stop requested → web app saves, then closes');
         return handlerInput.responseBuilder
             .addDirective({

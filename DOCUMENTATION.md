@@ -302,7 +302,7 @@ var AWS = require('aws-sdk');          // S3 access
 | `LaunchRequestHandler` | "Alexa, open sticky notes" | Calls `startWebApp()` |
 | `UserEventHandler` | Widget icon tapped | Calls `startWebApp()` |
 | `HtmlMessageHandler` | `Alexa.Presentation.HTML.Message` | Routes by `msg.type`; every reply goes through `replyToWebApp()` (echoes `seq`) |
-| `StopIntentHandler` | "Alexa, stop" / "cancel" (and `NavigateHomeIntent` if Alexa sends it) | Sends `prepareToClose` to the web app and keeps the session open; the app saves, then sends `closeApp` |
+| `StopIntentHandler` | "Alexa, stop" / "cancel" (and `NavigateHomeIntent` if Alexa sends it) | Sends `prepareToClose` to the web app and keeps the session open; the app saves, then sends `closeApp`. Asked again ≥ 5 s later with no message from the page since → ends the session |
 | `UsagesInstalledHandler` | Widget installed on device | Initializes DataStore (bell off) |
 | `UsagesRemovedHandler` | Widget removed from device | Logs removal |
 | `SessionEndedRequestHandler` | Session ended | Logs reason |
@@ -364,6 +364,8 @@ uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=13'
 
 Every web app → Lambda message carries `seq` (a counter). Every Lambda reply to it echoes the same `seq`, so the web app knows which message was confirmed.
 
+The Lambda keeps two timestamps in session attributes for the stop flow: `closeRequestedAt` (last `prepareToClose` sent) and `lastWebMsgAt` (last message from the web app).
+
 ### Web App → Lambda Messages
 
 | `msg.type` | Payload | Purpose |
@@ -375,6 +377,7 @@ Every web app → Lambda message carries `seq` (a counter). Every Lambda reply t
 | `loadCanvasChunk` | `{ noteId, chunkIndex }` | Request a specific chunk of canvas data |
 | `setAlert` | `{ value: boolean }` | Toggle bell alert |
 | `savePrefs` | `{ prefs: {...} }` | Save preferences only |
+| `closing` | `{}` | Web app received `prepareToClose` and is saving (lets the Lambda know the page is alive) |
 | `closeApp` | `{}` | Everything is saved: Lambda ends the session (closes the app) |
 
 ### Lambda → Web App Messages
@@ -384,11 +387,12 @@ Every web app → Lambda message carries `seq` (a counter). Every Lambda reply t
 | `saveResult` | `{ status, count }` | Notes saved confirmation (`status: 'error'` if S3 failed) |
 | `chunkSaved` | `{ noteId, index, ok }` | Canvas chunk saved confirmation (`ok: false` if S3 failed or the joined data was incomplete) |
 | `canvasSaved` | `{ noteId, ok }` | Full canvas saved confirmation |
-| `canvasLoaded` | `{ noteId, data }` | Complete canvas data (fits in one message) |
-| `canvasChunk` | `{ noteId, chunkIndex, totalChunks, data }` | One chunk of canvas data |
+| `canvasLoaded` | `{ noteId, data, error? }` | Complete canvas data (fits in one message). `data: null` = no drawing saved; `error: true` = S3 read failed (not the same as "no drawing") |
+| `canvasChunk` | `{ noteId, chunkIndex, totalChunks, data, error? }` | One chunk of canvas data (`error: true` if the read failed) |
 | `prefsSaved` | `{}` | Preferences saved confirmation |
 | `{status, code, bell}` | Alert status | Alert toggle result |
 | `prepareToClose` | `{}` | Sent for "Alexa, stop" / "cancel" (not a reply; has no `seq`) |
+| `closingAck` | `{}` | Reply to `closing` |
 | `ignored` / `error` | `{}` | Unknown message type / handler crashed — keeps the web app's queue moving |
 
 ---
@@ -533,6 +537,8 @@ Web App                           Lambda                          S3
 - An autosave round starts **1 s after the last change** (at most 10 s after the first one while changes keep coming), and not in the middle of a stroke.
 - A round sends the note metadata if it changed, then **only the canvases that changed**, as full-resolution PNGs. A version counts as saved only when the Lambda confirms it; changes made during a round are picked up by the next one.
 - A note whose saved drawing is still loading is not uploaded until the load finishes. Otherwise the upload would replace the saved drawing with just the new strokes.
+- If loading a saved drawing fails (S3 error, broken chunk), the web app retries it (3 attempts, 3 s apart). If it still fails, that note's drawing is **not** saved (the button shows ⚠) so the stored drawing is never replaced; the Save button and "Try again" retry the load.
+- Before drawing a restored image (load, undo, redo) the canvas is switched back from eraser mode (`globalCompositeOperation = 'source-over'`); otherwise the image would erase the canvas.
 - A failed round (no reply after retries, or `ok: false`) shows **⚠ Save** and retries after 10 s.
 
 ### Save button states
@@ -548,7 +554,7 @@ Tapping the button saves immediately and shows the overlay until the save is con
 ### Closing
 | How the user closes | Saved before closing? |
 |---------------------|-----------------------|
-| "Alexa, stop" / "Alexa, cancel" | **Yes.** Lambda sends `prepareToClose`; the app shows "Saving before closing… N%", saves everything, then sends `closeApp`; the Lambda ends the session. If saving fails, the user can **Try again** or **Close without saving**. |
+| "Alexa, stop" / "Alexa, cancel" | **Yes.** Lambda sends `prepareToClose`; the app answers `closing`, shows "Saving before closing… N%", saves everything (finishing any stroke in progress), then sends `closeApp`; the Lambda ends the session. If saving fails, the user can **Try again** (or say "Alexa, stop" again) or **Close without saving**. If the page never answers (old cached version, script error), saying "Alexa, stop" again after 5 s closes the app. |
 | Swipe away, Home, "Alexa, exit", "Alexa, go home" | Can't be intercepted (no close event). Only what autosave already finished is kept. |
 | Idle timeout (300 s without interaction) | Yes in practice — autosave runs long before the timeout. |
 
@@ -634,7 +640,7 @@ uri: 'https://jjgithu.github.io/sticky-notes/web/index.html?v=14'  // was v=13
 ```
 Then redeploy Lambda.
 
-> **v13 (autosave):** the web app works with the old Lambda (autosave, Save button), but "Alexa, stop" saving before closing needs the v13 Lambda deployed.
+> **v13 (autosave):** deploy the web app first (merge to `main`, wait until GitHub Pages serves it), then the Lambda. The Lambda's `?v=13` is what makes devices load the new page; deploying it before Pages is updated can leave the old page cached under the new URL. The new page also works with the old Lambda (autosave, Save button), but "Alexa, stop" saving before closing needs the v13 Lambda. No interaction model build and no widget (APL) changes are needed.
 
 ### GitHub Pages Settings
 - **Source:** Deploy from branch → `main` / `/ (root)`
@@ -664,6 +670,7 @@ The Lambda needs an S3 bucket. Set the bucket name in the Lambda environment var
 | 10 | **Prefs save must be non-blocking** | If prefs save fails in `saveNotes` handler, the note save was also failing. Prefs save is now fire-and-forget. |
 | 11 | **No close event** | Swipe/Home/"Alexa, exit" close the app without warning. Saves must happen continuously (autosave), not at close time. |
 | 12 | **A reply is the only real confirmation** | `sendMessage` gives no delivery guarantee. The queue waits for the Lambda's reply (matched by `seq`) and re-sends when none arrives. |
+| 13 | **Canvas context stays in eraser mode** | After an Erase stroke the 2D context keeps `globalCompositeOperation = 'destination-out'`, so `drawImage` erases instead of drawing. Reset it to `'source-over'` before drawing a restored image. |
 
 ### 🟡 Historical Issues (Resolved)
 
